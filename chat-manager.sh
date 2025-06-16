@@ -16,7 +16,7 @@ NC='\033[0m' # No Color
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-CONFIG_FILE="$SCRIPT_DIR/chat-manager.conf"
+CONFIG_FILE="$SCRIPT_DIR/cm.conf"
 
 # Load configuration if available
 if [ -f "$CONFIG_FILE" ]; then
