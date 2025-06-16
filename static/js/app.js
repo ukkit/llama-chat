@@ -1,13 +1,17 @@
 /**
- * Enhanced Chat Application with Markdown Support
- * Ollama Chat Frontend with History Storage
+ * Enhanced Chat Application with Progressive Model Switching
+ * Compatible with both original and enhanced Flask backends
+ * Clean version - complete replacement for app.js
  */
 
 // Global variables
 let currentConversationId = null;
 let availableModels = [];
+let currentModel = null;
 let isLoading = false;
+let isModelSwitching = false;
 let messageStartTime = null;
+let hasEnhancedBackend = false;
 
 // Initialize marked with options
 function initializeMarked() {
@@ -31,157 +35,393 @@ function initializeMarked() {
     // Custom renderer for code blocks with copy buttons
     const renderer = new marked.Renderer();
     renderer.code = function(code, infostring, escaped) {
-		const lang = (infostring || '').match(/\S*/)[0];
-		const highlightedCode = this.options.highlight ?
-			this.options.highlight(code, lang) :
-			escapeHtml(code);
+        const lang = (infostring || '').match(/\S*/)[0];
+        const highlightedCode = this.options.highlight ?
+            this.options.highlight(code, lang) :
+            escapeHtml(code);
 
-		const langDisplay = lang ? lang : 'text';
-		const codeId = 'code-' + Math.random().toString(36).substr(2, 9);
+        const langDisplay = lang ? lang : 'text';
+        const codeId = 'code-' + Math.random().toString(36).substr(2, 9);
 
-		// Remove all unnecessary whitespace and newlines from the template
-		return `<pre><div class="code-block-header"><span class="code-language">${langDisplay}</span><button class="code-copy-btn" onclick="copyCodeBlock('${codeId}')" title="Copy code">📋 Copy</button></div><code id="${codeId}" class="hljs ${lang || ''}">${highlightedCode}</code></pre>`;
-	};
+        return `<pre><div class="code-block-header"><span class="code-language">${langDisplay}</span><button class="code-copy-btn" onclick="copyCodeBlock('${codeId}')" title="Copy code">📋 Copy</button></div><code id="${codeId}" class="hljs ${lang || ''}">${highlightedCode}</code></pre>`;
+    };
 
     marked.use({ renderer });
 }
 
 // Process thinking tags in content
 function processThinkingTags(content) {
-    // Handle both single-line and multi-line thinking tags
     const thinkRegex = /<think>([\s\S]*?)<\/think>/gi;
-
     return content.replace(thinkRegex, function(match, thinkingContent) {
-        // Clean up the thinking content - remove extra whitespace but preserve line breaks
         const cleanedContent = thinkingContent.trim();
-
-        // Convert the thinking content to HTML with proper styling
-        // Process any markdown within the thinking content
         let processedThinking;
         try {
             processedThinking = marked.parseInline(cleanedContent);
         } catch (error) {
-            // Fallback to escaped HTML if markdown processing fails
             processedThinking = escapeHtml(cleanedContent).replace(/\n/g, '<br>');
         }
-
         return `<div class="thinking-content" data-thinking="true">${processedThinking}</div>`;
     });
 }
 
-// Initialize the app
-async function init() {
-    console.log('Initializing chat-o-llama...');
-
-    // Initialize markdown parser
-    initializeMarked();
-
-    // Show loading state
-    const modelSelect = document.getElementById('modelSelect');
-    modelSelect.innerHTML = '<option value="">Loading models...</option>';
-
-    await loadModels();
-    await loadConversations();
-
-    console.log('Initialization complete');
-}
-
-// Load available models
-async function loadModels() {
+// Backend compatibility detection
+async function detectBackendCapabilities() {
     try {
-        const response = await fetch('/api/models');
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        availableModels = data.models || [];
-
-        const modelSelect = document.getElementById('modelSelect');
-        modelSelect.innerHTML = '';
-
-        if (availableModels.length === 0) {
-            const option = document.createElement('option');
-            option.value = '';
-            option.textContent = 'No models available';
-            option.disabled = true;
-            modelSelect.appendChild(option);
-
-            console.warn('No llama.cpp models found. Make sure llama.cpp server is running.');
-        } else {
-            // Add default option
-            const defaultOption = document.createElement('option');
-            defaultOption.value = '';
-            defaultOption.textContent = 'Select a model...';
-            defaultOption.disabled = true;
-            modelSelect.appendChild(defaultOption);
-
-            // Add available models
-            availableModels.forEach(model => {
-                const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
-                modelSelect.appendChild(option);
-            });
-
-            // Auto-select first model if available
-            if (availableModels.length > 0) {
-                modelSelect.selectedIndex = 1; // Skip the "Select a model..." option
-            }
-
-            console.log(`Loaded ${availableModels.length} models:`, availableModels);
+        const response = await fetch('/api/models/available');
+        if (response.ok) {
+            hasEnhancedBackend = true;
+            console.log('Enhanced backend detected');
+            return true;
         }
     } catch (error) {
-        console.error('Error loading models:', error);
+        // Enhanced backend not available
+    }
 
-        const modelSelect = document.getElementById('modelSelect');
-        modelSelect.innerHTML = '';
+    hasEnhancedBackend = false;
+    console.log('Using original backend compatibility mode');
+    return false;
+}
 
-        const option = document.createElement('option');
-        option.value = '';
-        option.textContent = 'Error loading models';
-        option.disabled = true;
-        modelSelect.appendChild(option);
+// Load available models with compatibility
+async function loadAvailableModels() {
+    try {
+        await detectBackendCapabilities();
 
-        // Show user-friendly error
-        setTimeout(() => {
-            showErrorNotification(
-                'Cannot load models',
-                'Make sure llama.cpp server is running on port {{ port }}.'
-            );
-        }, 100);
+        if (hasEnhancedBackend) {
+            // Use enhanced endpoint
+            const response = await fetch('/api/models/available');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            availableModels = data.models || [];
+            currentModel = data.current_model;
+
+            console.log(`Loaded ${availableModels.length} available models:`, availableModels);
+        } else {
+            // Fallback to original endpoint
+            const response = await fetch('/api/models');
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            // Convert original format to enhanced format
+            availableModels = (data.models || []).map(modelName => ({
+                name: modelName,
+                file_path: modelName,
+                size_mb: 0,
+                size_bytes: 0
+            }));
+
+            currentModel = data.models && data.models.length > 0 ? data.models[0] : null;
+            console.log(`Loaded ${availableModels.length} models from original backend:`, availableModels);
+        }
+
+        console.log('Current model:', currentModel);
+        return { models: availableModels, currentModel };
+    } catch (error) {
+        console.error('Error loading available models:', error);
+        throw error;
     }
 }
 
-// Show error notification
-function showErrorNotification(title, message) {
-    const errorDiv = document.createElement('div');
-    errorDiv.style.cssText = `
-        position: fixed; top: 20px; right: 20px;
-        background: #da3633; color: white;
-        padding: 12px 16px; border-radius: 6px;
-        font-family: inherit; font-size: 13px;
-        z-index: 1000; max-width: 300px;
-    `;
-    errorDiv.innerHTML = `
-        <strong>${title}</strong><br>
-        ${message}<br>
-        <small>Check console for details.</small>
-    `;
-    document.body.appendChild(errorDiv);
+// Switch model (enhanced backend only)
+async function switchModel(modelName) {
+    if (!hasEnhancedBackend) {
+        showNotification('Model switching requires enhanced backend. Please update your Flask app.', 'warning', 5000);
+        return false;
+    }
 
-    setTimeout(() => errorDiv.remove(), 5000);
+    try {
+        console.log(`Switching to model: ${modelName}`);
+        showModelSwitching(true);
+
+        const response = await fetch('/api/models/switch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_name: modelName })
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+            currentModel = data.current_model;
+            console.log(`Successfully switched to: ${modelName}`);
+            updateModelSelectUI();
+            showNotification(`Successfully switched to ${modelName}`, 'success');
+            return true;
+        } else {
+            throw new Error(data.error || 'Failed to switch model');
+        }
+    } catch (error) {
+        console.error('Error switching model:', error);
+        showNotification(`Failed to switch model: ${error.message}`, 'error');
+        return false;
+    } finally {
+        showModelSwitching(false);
+    }
 }
 
-// Load conversations
+// Update model select UI
+function updateModelSelectUI() {
+    const modelSelect = document.getElementById('modelSelect');
+    modelSelect.innerHTML = '';
+
+    if (availableModels.length === 0) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = 'No models available';
+        option.disabled = true;
+        modelSelect.appendChild(option);
+        return;
+    }
+
+    // Add available models
+    availableModels.forEach(model => {
+        const option = document.createElement('option');
+        option.value = model.name;
+
+        if (hasEnhancedBackend && model.size_mb > 0) {
+            option.textContent = `${model.name} (${model.size_mb}MB)`;
+        } else {
+            option.textContent = model.name;
+        }
+
+        // Mark current model as selected
+        if (currentModel && (currentModel === model.name || currentModel.includes(model.name.replace('.gguf', '')))) {
+            option.selected = true;
+        }
+
+        modelSelect.appendChild(option);
+    });
+
+    updateCurrentModelDisplay();
+}
+
+// Update current model display
+function updateCurrentModelDisplay() {
+    const currentModelDisplay = document.getElementById('currentModelDisplay');
+    if (currentModelDisplay) {
+        if (currentModel) {
+            const modelInfo = availableModels.find(m =>
+                currentModel === m.name || currentModel.includes(m.name.replace('.gguf', ''))
+            );
+            if (modelInfo && hasEnhancedBackend && modelInfo.size_mb > 0) {
+                currentModelDisplay.textContent = `${modelInfo.name} (${modelInfo.size_mb}MB)`;
+            } else {
+                currentModelDisplay.textContent = currentModel;
+            }
+        } else {
+            currentModelDisplay.textContent = 'No model loaded';
+        }
+    }
+}
+
+// Show model switching UI
+function showModelSwitching(switching) {
+    isModelSwitching = switching;
+    const modelSelect = document.getElementById('modelSelect');
+    const sendBtn = document.getElementById('sendBtn');
+    const messageInput = document.getElementById('messageInput');
+
+    // Show overlay if enhanced backend
+    const overlay = document.getElementById('modelSwitchingOverlay');
+    if (overlay) {
+        overlay.style.display = switching ? 'flex' : 'none';
+    }
+
+    if (switching) {
+        modelSelect.disabled = true;
+        sendBtn.disabled = true;
+        sendBtn.textContent = 'Switching Model...';
+        messageInput.disabled = true;
+        messageInput.placeholder = 'Switching model, please wait...';
+    } else {
+        modelSelect.disabled = false;
+        if (!isLoading) {
+            sendBtn.disabled = false;
+            sendBtn.textContent = 'Send';
+            messageInput.disabled = false;
+            messageInput.placeholder = 'Type your message...';
+        }
+    }
+}
+
+// Check server status
+async function checkServerStatus() {
+    try {
+        if (hasEnhancedBackend) {
+            const response = await fetch('/api/server/status');
+            const data = await response.json();
+            return data;
+        } else {
+            // Fallback check using original endpoints
+            const response = await fetch('/api/models');
+            if (response.ok) {
+                const data = await response.json();
+                return {
+                    server_running: true,
+                    current_model: data.models && data.models.length > 0 ? data.models[0] : null
+                };
+            }
+            return { server_running: false, current_model: null };
+        }
+    } catch (error) {
+        console.error('Error checking server status:', error);
+        return { server_running: false, current_model: null };
+    }
+}
+
+// Enhanced notification system
+function showNotification(message, type = 'info', duration = 3000) {
+    const existingNotifications = document.querySelectorAll('.notification');
+    if (existingNotifications.length > 3) {
+        existingNotifications[0].remove();
+    }
+
+    const notification = document.createElement('div');
+    notification.className = `notification notification-${type}`;
+    notification.style.cssText = `
+        position: fixed; top: ${20 + existingNotifications.length * 60}px; right: 20px;
+        padding: 12px 20px; border-radius: 6px;
+        font-family: inherit; font-size: 13px;
+        z-index: 1000; max-width: 350px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        color: white; font-weight: 500;
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+    `;
+
+    switch (type) {
+        case 'success':
+            notification.style.background = '#238636';
+            break;
+        case 'error':
+            notification.style.background = '#da3633';
+            break;
+        case 'warning':
+            notification.style.background = '#bf8700';
+            break;
+        default:
+            notification.style.background = '#0969da';
+    }
+
+    notification.textContent = message;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        notification.style.transform = 'translateX(0)';
+    }, 10);
+
+    setTimeout(() => {
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.parentNode.removeChild(notification);
+            }
+        }, 300);
+    }, duration);
+}
+
+// Initialize the app
+async function init() {
+    console.log('Initializing enhanced llama-chat with compatibility detection...');
+
+    initializeMarked();
+
+    const modelSelect = document.getElementById('modelSelect');
+    modelSelect.innerHTML = '<option value="">Loading models...</option>';
+
+    try {
+        await loadAvailableModels();
+        updateModelSelectUI();
+        await loadConversations();
+
+        const serverStatus = await checkServerStatus();
+        if (!serverStatus.server_running) {
+            showNotification('llama.cpp server may not be running. Some features may not work.', 'warning', 5000);
+        }
+
+        if (hasEnhancedBackend) {
+            showNotification('Enhanced backend detected - full model switching available!', 'success');
+        } else {
+            showNotification('Using compatibility mode - upgrade Flask app for model switching', 'info', 5000);
+        }
+
+        console.log('Initialization complete');
+    } catch (error) {
+        console.error('Initialization error:', error);
+        showNotification('Failed to initialize application. Check console for details.', 'error', 5000);
+
+        const modelSelect = document.getElementById('modelSelect');
+        modelSelect.innerHTML = '<option value="">Error loading models</option>';
+    }
+}
+
+// Model selection handler
+async function onModelChange() {
+    const modelSelect = document.getElementById('modelSelect');
+    const selectedModel = modelSelect.value;
+
+    if (!selectedModel || isModelSwitching || isLoading) {
+        return;
+    }
+
+    if (!hasEnhancedBackend) {
+        showNotification('Model switching requires enhanced backend. Current selection noted for new conversations.', 'info');
+        return;
+    }
+
+    const isCurrentModel = currentModel && (
+        currentModel === selectedModel ||
+        currentModel.includes(selectedModel.replace('.gguf', ''))
+    );
+
+    if (isCurrentModel) {
+        console.log('Model already loaded:', selectedModel);
+        return;
+    }
+
+    const success = await switchModel(selectedModel);
+
+    if (!success) {
+        updateModelSelectUI();
+    }
+}
+
+// Fixed loadConversations function
 async function loadConversations() {
     try {
+        console.log('Loading conversations...');
         const response = await fetch('/api/conversations');
+        console.log('Conversations response status:', response.status, response.statusText);
+
+        if (!response.ok) {
+            console.error('Response not OK:', response.status, response.statusText);
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log('Conversations response data:', data);
+
+        // Check if the response has the expected structure
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load conversations');
+        }
 
         const conversationsList = document.getElementById('conversationsList');
         conversationsList.innerHTML = '';
+
+        // Check if conversations array exists
+        if (!data.conversations || !Array.isArray(data.conversations)) {
+            console.warn('No conversations array in response');
+            return;
+        }
 
         data.conversations.forEach(conv => {
             const div = document.createElement('div');
@@ -190,9 +430,14 @@ async function loadConversations() {
 
             const date = new Date(conv.updated_at).toLocaleDateString();
 
+            let modelDisplay = conv.model;
+            if (hasEnhancedBackend && conv.model_file) {
+                modelDisplay = conv.model_file;
+            }
+
             div.innerHTML = `
                 <div class="conversation-title" data-conv-id="${conv.id}" onclick="event.stopPropagation();" ondblclick="startRename(${conv.id})">${escapeHtml(conv.title)}</div>
-                <div class="conversation-meta">${conv.model} • ${date}</div>
+                <div class="conversation-meta">${modelDisplay} • ${date}</div>
                 <div class="conversation-actions">
                     <button class="conversation-edit" onclick="event.stopPropagation(); startRename(${conv.id})" title="Rename">✏</button>
                     <button class="conversation-delete" onclick="event.stopPropagation(); deleteConversation(${conv.id})" title="Delete">×</button>
@@ -201,383 +446,195 @@ async function loadConversations() {
 
             conversationsList.appendChild(div);
         });
+
+        console.log(`Loaded ${data.conversations.length} conversations`);
+        
     } catch (error) {
         console.error('Error loading conversations:', error);
+        showNotification('Failed to load conversations', 'error');
     }
 }
 
-// Create new chat
+// Fixed createNewChat function
 async function createNewChat() {
-    const selectedModel = document.getElementById('modelSelect').value;
-    if (!selectedModel) {
-        alert('Please select a model first');
-        return;
-    }
-
     try {
+        console.log('Creating new chat...');
+        
+        // Get selected model for enhanced backend
+        const selectedModel = document.getElementById('modelSelect').value;
+        console.log('Selected model:', selectedModel);
+
+        const requestBody = {
+            title: 'New Chat'
+        };
+
+        // Add model info if we have enhanced backend
+        if (hasEnhancedBackend && selectedModel) {
+            requestBody.model = selectedModel;
+            requestBody.model_file = selectedModel;
+        }
+
+        console.log('Request body:', requestBody);
+
         const response = await fetch('/api/conversations', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                title: 'New Chat',
-                model: selectedModel
-            })
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
         });
 
+        console.log('Create conversation response status:', response.status);
+
+        if (!response.ok) {
+            // Try to get error details from response
+            let errorMessage = `HTTP error! status: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.error) {
+                    errorMessage = errorData.error;
+                }
+            } catch (e) {
+                // If we can't parse JSON, use the status text
+                errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            }
+            throw new Error(errorMessage);
+        }
+
         const data = await response.json();
+        console.log('Create conversation response data:', data);
+
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to create conversation');
+        }
+
+        if (!data.conversation_id) {
+            throw new Error('No conversation_id in response');
+        }
+
+        console.log('Created conversation ID:', data.conversation_id);
+
+        // Reload conversations list
         await loadConversations();
-        loadConversation(data.conversation_id);
+        
+        // Load the new conversation
+        await loadConversation(data.conversation_id);
+
     } catch (error) {
-        console.error('Error creating conversation:', error);
+        console.error('Error creating new chat:', error);
+        showNotification(`Failed to create new chat: ${error.message}`, 'error');
     }
 }
 
-// Load conversation
+// Fixed loadConversation function
 async function loadConversation(conversationId) {
     try {
+        console.log('Loading conversation ID:', conversationId);
+        
+        if (!conversationId) {
+            throw new Error('No conversation ID provided');
+        }
+
         const response = await fetch(`/api/conversations/${conversationId}`);
+        console.log('Load conversation response status:', response.status);
+
+        if (!response.ok) {
+            let errorMessage = `HTTP error! status: ${response.status}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.error) {
+                    errorMessage = errorData.error;
+                }
+            } catch (e) {
+                errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            }
+            throw new Error(errorMessage);
+        }
+
         const data = await response.json();
+        console.log('Load conversation response data:', data);
+
+        // Check if response indicates an error
+        if (!data.success) {
+            throw new Error(data.error || 'Failed to load conversation');
+        }
+
+        // Check if conversation data exists
+        if (!data.conversation) {
+            console.error('No conversation data in response:', data);
+            throw new Error('No conversation data received');
+        }
 
         currentConversationId = conversationId;
 
-        // Update UI
         document.getElementById('chatTitle').textContent = data.conversation.title;
         document.getElementById('inputContainer').style.display = 'flex';
 
-        // Restore the model selection for this conversation
-        const modelSelect = document.getElementById('modelSelect');
-        if (data.conversation.model && modelSelect) {
-            modelSelect.value = data.conversation.model;
+        // Handle model switching for enhanced backend
+        if (hasEnhancedBackend) {
+            const conversationModel = data.conversation.model_file || data.conversation.model;
+            if (conversationModel && conversationModel !== currentModel) {
+                const modelExists = availableModels.some(m => m.name === conversationModel);
+                if (modelExists) {
+                    console.log(`Conversation uses ${conversationModel}, current model is ${currentModel}`);
+
+                    if (confirm(`This conversation was created with ${conversationModel}. Switch to this model?`)) {
+                        const switchSuccess = await switchModel(conversationModel);
+                        if (!switchSuccess) {
+                            showNotification(`Failed to switch to ${conversationModel}. Using current model.`, 'warning');
+                        }
+                    }
+                } else {
+                    showNotification(`Model ${conversationModel} not found. Using current model.`, 'warning');
+                }
+            }
         }
 
-        // Update active conversation
+        // Update model select UI
+        const modelSelect = document.getElementById('modelSelect');
+        if (modelSelect) {
+            const conversationModel = hasEnhancedBackend ?
+                (data.conversation.model_file || data.conversation.model) :
+                data.conversation.model;
+            modelSelect.value = conversationModel;
+        }
+
+        // Update active conversation in sidebar
         document.querySelectorAll('.conversation-item').forEach(item => {
             item.classList.remove('active');
         });
         document.querySelector(`[onclick*="${conversationId}"]`)?.classList.add('active');
 
-        // Load messages
+        // Clear and populate chat
         const chatContainer = document.getElementById('chatContainer');
         chatContainer.innerHTML = '';
 
-        data.messages.forEach(message => {
-            addMessageToChat(message.role, message.content, message.model, message.timestamp,
-                message.response_time_ms, message.estimated_tokens);
-        });
+        // Add messages if they exist
+        if (data.messages && Array.isArray(data.messages)) {
+            data.messages.forEach(message => {
+                addMessageToChat(
+                    message.role,
+                    message.content,
+                    message.model,
+                    message.timestamp,
+                    message.response_time_ms,
+                    message.estimated_tokens,
+                    hasEnhancedBackend ? message.model_file : null
+                );
+            });
+        }
 
-        // Focus input
         document.getElementById('messageInput').focus();
 
     } catch (error) {
         console.error('Error loading conversation:', error);
+        showNotification(`Failed to load conversation: ${error.message}`, 'error');
     }
-}
-
-// Start renaming a conversation
-function startRename(conversationId) {
-    const titleElement = document.querySelector(`[data-conv-id="${conversationId}"]`);
-    if (!titleElement || titleElement.querySelector('input')) return; // Already editing
-
-    const currentTitle = titleElement.textContent;
-
-    // Create input element
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'conversation-title-input';
-    input.value = currentTitle;
-    input.maxLength = 100;
-
-    // Handle save/cancel
-    const saveRename = async () => {
-        const newTitle = input.value.trim();
-        if (!newTitle) {
-            cancelRename();
-            return;
-        }
-
-        if (newTitle === currentTitle) {
-            cancelRename();
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/conversations/${conversationId}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title: newTitle })
-            });
-
-            if (response.ok) {
-                // Remove input first, then set text content
-                if (input.parentNode === titleElement) {
-                    titleElement.removeChild(input);
-                }
-                titleElement.textContent = newTitle;
-
-                // Update chat title if this is the current conversation
-                if (currentConversationId === conversationId) {
-                    document.getElementById('chatTitle').textContent = newTitle;
-                }
-
-                // Reload conversations to update order
-                await loadConversations();
-            } else {
-                const error = await response.json();
-                alert(error.error || 'Failed to rename conversation');
-                cancelRename();
-            }
-        } catch (error) {
-            console.error('Error renaming conversation:', error);
-            alert('Failed to rename conversation');
-            cancelRename();
-        }
-    };
-
-    const cancelRename = () => {
-        // Remove input first, then set text content
-        if (input.parentNode === titleElement) {
-            titleElement.removeChild(input);
-        }
-        titleElement.textContent = currentTitle;
-    };
-
-    // Event handlers
-    input.onblur = saveRename;
-    input.onkeydown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            saveRename();
-        } else if (e.key === 'Escape') {
-            e.preventDefault();
-            cancelRename();
-        }
-    };
-
-    // Replace title with input
-    titleElement.textContent = '';
-    titleElement.appendChild(input);
-    input.focus();
-    input.select();
-}
-
-// Copy code block content
-async function copyCodeBlock(codeId) {
-    try {
-        const codeElement = document.getElementById(codeId);
-        if (!codeElement) return;
-
-        // Get the raw text content without HTML formatting
-        let codeText = codeElement.textContent || codeElement.innerText || '';
-
-        // Clean up any extra whitespace that might have been added during highlighting
-        codeText = codeText.trim();
-
-        if (!codeText) {
-            throw new Error('No code content found to copy');
-        }
-
-        // Copy to clipboard
-        if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(codeText);
-            showCodeCopySuccess(codeId);
-        } else {
-            // Fallback for older browsers
-            const success = copyTextFallback(codeText);
-            if (success) {
-                showCodeCopySuccess(codeId);
-            } else {
-                showCodeCopyError(codeId);
-            }
-        }
-
-    } catch (err) {
-        console.error('Code copy failed:', err);
-        showCodeCopyError(codeId);
-    }
-}
-
-// Show code copy success
-function showCodeCopySuccess(codeId) {
-    const button = document.querySelector(`button[onclick*="${codeId}"]`);
-    if (button) {
-        const originalText = button.textContent;
-        button.textContent = '✓ Copied';
-        button.classList.add('copied');
-        showCopyNotification();
-
-        setTimeout(() => {
-            button.textContent = originalText;
-            button.classList.remove('copied');
-        }, 2000);
-    }
-}
-
-// Show code copy error
-function showCodeCopyError(codeId) {
-    const button = document.querySelector(`button[onclick*="${codeId}"]`);
-    if (button) {
-        const originalText = button.textContent;
-        button.textContent = '❌ Failed';
-        button.style.color = '#da3633';
-
-        setTimeout(() => {
-            button.textContent = originalText;
-            button.style.color = '';
-        }, 2000);
-    }
-}
-
-// Copy message content to clipboard (excluding thinking content)
-async function copyMessage(button) {
-    try {
-        // Get the message content from the parent message div
-        const messageContent = button.closest('.message-content');
-
-        // Create a temporary div to extract text without markdown formatting
-        const tempDiv = document.createElement('div');
-
-        // Clone the message content but exclude meta, stats, copy button, and thinking content
-        const clonedContent = messageContent.cloneNode(true);
-
-        // Remove meta, stats, copy button, and thinking content
-        const metaDiv = clonedContent.querySelector('.message-meta');
-        const statsDiv = clonedContent.querySelector('.message-stats');
-        const copyBtn = clonedContent.querySelector('.copy-btn');
-        const codeHeaders = clonedContent.querySelectorAll('.code-block-header');
-        const thinkingContent = clonedContent.querySelectorAll('.thinking-content');
-
-        if (metaDiv) metaDiv.remove();
-        if (statsDiv) statsDiv.remove();
-        if (copyBtn) copyBtn.remove();
-        // Remove code block headers to get clean code
-        codeHeaders.forEach(header => header.remove());
-        // Remove thinking content from copy
-        thinkingContent.forEach(thinking => thinking.remove());
-
-        tempDiv.appendChild(clonedContent);
-
-        // Get text content
-        let textContent = tempDiv.textContent || tempDiv.innerText || '';
-        textContent = textContent.trim();
-
-        if (!textContent) {
-            throw new Error('No text content found to copy');
-        }
-
-        // Copy to clipboard
-        if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(textContent);
-            showCopySuccess(button);
-        } else {
-            // Fallback for older browsers
-            const success = copyTextFallback(textContent);
-            if (success) {
-                showCopySuccess(button);
-            } else {
-                showCopyError(button);
-            }
-        }
-
-    } catch (err) {
-        console.error('Copy failed:', err);
-        showCopyError(button);
-    }
-}
-
-// Fallback copy method for older browsers or non-HTTPS
-function copyTextFallback(text) {
-    try {
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-
-        // Style the textarea to be invisible but functional
-        textArea.style.position = 'fixed';
-        textArea.style.top = '0';
-        textArea.style.left = '0';
-        textArea.style.width = '2em';
-        textArea.style.height = '2em';
-        textArea.style.padding = '0';
-        textArea.style.border = 'none';
-        textArea.style.outline = 'none';
-        textArea.style.boxShadow = 'none';
-        textArea.style.background = 'transparent';
-        textArea.style.opacity = '0';
-        textArea.setAttribute('readonly', '');
-
-        document.body.appendChild(textArea);
-
-        // Focus and select
-        textArea.focus();
-        textArea.setSelectionRange(0, textArea.value.length);
-        textArea.select();
-
-        // Try to copy
-        const successful = document.execCommand('copy');
-
-        // Clean up
-        document.body.removeChild(textArea);
-
-        return successful;
-
-    } catch (err) {
-        console.error('Fallback copy error:', err);
-        return false;
-    }
-}
-
-// Show copy success feedback
-function showCopySuccess(button) {
-    button.textContent = '✓';
-    button.classList.add('copied');
-    showCopyNotification();
-
-    setTimeout(() => {
-        button.textContent = '📋';
-        button.classList.remove('copied');
-    }, 2000);
-}
-
-// Show copy error feedback
-function showCopyError(button) {
-    button.textContent = '❌';
-    button.style.color = '#da3633';
-
-    // Show error notification instead of success
-    const notification = document.getElementById('copyNotification');
-    notification.textContent = 'Copy failed!';
-    notification.style.backgroundColor = '#da3633';
-    notification.classList.add('show');
-
-    setTimeout(() => {
-        button.textContent = '📋';
-        button.style.color = '';
-        notification.classList.remove('show');
-        // Reset notification
-        setTimeout(() => {
-            notification.textContent = 'Copied to clipboard!';
-            notification.style.backgroundColor = '#238636';
-        }, 300);
-    }, 2000);
-}
-
-// Show copy notification
-function showCopyNotification() {
-    const notification = document.getElementById('copyNotification');
-    notification.classList.add('show');
-    setTimeout(() => {
-        notification.classList.remove('show');
-    }, 2000);
-}
-
-// Calculate tokens (rough estimation)
-function estimateTokens(text) {
-    // Rough estimation: ~4 characters per token for English text
-    return Math.ceil(text.length / 4);
 }
 
 // Send message
 async function sendMessage() {
-    if (isLoading || !currentConversationId) return;
+    if (isLoading || isModelSwitching || !currentConversationId) return;
 
     const messageInput = document.getElementById('messageInput');
     const message = messageInput.value.trim();
@@ -585,15 +642,19 @@ async function sendMessage() {
 
     if (!message) return;
 
-    // Record start time for performance measurement
+    const serverStatus = await checkServerStatus();
+    if (!serverStatus.server_running) {
+        showNotification('llama.cpp server is not running. Please start the server.', 'error');
+        return;
+    }
+
     messageStartTime = Date.now();
 
-    // Add user message to chat
-    addMessageToChat('user', message);
+    addMessageToChat('user', message, selectedModel, null, null, null,
+                     hasEnhancedBackend ? selectedModel : null);
     messageInput.value = '';
     autoResize(messageInput);
 
-    // Show loading
     isLoading = true;
     document.getElementById('sendBtn').disabled = true;
     document.getElementById('sendBtn').textContent = 'Thinking...';
@@ -605,53 +666,78 @@ async function sendMessage() {
     scrollToBottom();
 
     try {
+        const requestBody = {
+            conversation_id: currentConversationId,
+            message: message,
+            model: selectedModel
+        };
+
+        if (hasEnhancedBackend) {
+            requestBody.model_file = selectedModel;
+        }
+
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                conversation_id: currentConversationId,
-                message: message,
-                model: selectedModel
-            })
+            body: JSON.stringify(requestBody)
         });
 
         const data = await response.json();
-
-        // Calculate response time
         const responseTime = messageStartTime ? Date.now() - messageStartTime : 0;
-        const estimatedTokens = estimateTokens(data.response);
 
-        // Remove loading
         loadingDiv.remove();
 
-        // Add assistant response with stats
-        addMessageToChat('assistant', data.response, data.model, null, responseTime, estimatedTokens);
+        addMessageToChat(
+            'assistant',
+            data.response,
+            data.model,
+            null,
+            responseTime,
+            data.estimated_tokens,
+            hasEnhancedBackend ? data.model_file : null
+        );
 
-        // Reload conversations to update timestamp
+        if (hasEnhancedBackend && data.model_file && data.model_file !== currentModel) {
+            currentModel = data.model_file;
+            updateModelSelectUI();
+        }
+
         await loadConversations();
 
     } catch (error) {
         loadingDiv.remove();
-        addMessageToChat('assistant', 'Error: Could not get response from Ollama');
+        console.error('Chat error:', error);
+        addMessageToChat('assistant', 'Error: Could not get response from llama.cpp server');
+        showNotification('Failed to get response from server', 'error');
     } finally {
         isLoading = false;
-        document.getElementById('sendBtn').disabled = false;
-        document.getElementById('sendBtn').textContent = 'Send';
+        if (!isModelSwitching) {
+            document.getElementById('sendBtn').disabled = false;
+            document.getElementById('sendBtn').textContent = 'Send';
+        }
         messageInput.focus();
         messageStartTime = null;
     }
 }
 
-// Add message to chat with markdown support and thinking tag processing
-function addMessageToChat(role, content, model = null, timestamp = null, responseTime = null, tokens = null) {
+// Add message to chat
+function addMessageToChat(role, content, model = null, timestamp = null, responseTime = null, tokens = null, modelFile = null) {
     const chatContainer = document.getElementById('chatContainer');
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}`;
 
     const time = timestamp ? new Date(timestamp).toLocaleTimeString() : new Date().toLocaleTimeString();
-    const modelInfo = model && role === 'assistant' ? ` • ${model}` : '';
 
-    // Build stats string
+    let modelInfo = '';
+    if (model && role === 'assistant') {
+        if (hasEnhancedBackend && modelFile) {
+            const modelName = modelFile.replace('.gguf', '');
+            modelInfo = ` • ${modelName}`;
+        } else {
+            modelInfo = ` • ${model}`;
+        }
+    }
+
     let statsString = '';
     if (role === 'assistant' && (responseTime || tokens)) {
         const stats = [];
@@ -670,16 +756,13 @@ function addMessageToChat(role, content, model = null, timestamp = null, respons
         }
     }
 
-    // Parse markdown for assistant messages, escape HTML for user messages
     let contentHtml;
     if (role === 'assistant') {
         try {
-            // First process thinking tags, then apply markdown
             const processedContent = processThinkingTags(content);
             contentHtml = marked.parse(processedContent);
         } catch (error) {
             console.error('Markdown parsing error:', error);
-            // Fallback: process thinking tags then escape HTML
             const processedContent = processThinkingTags(content);
             contentHtml = escapeHtml(processedContent).replace(/\n/g, '<br>');
         }
@@ -698,7 +781,6 @@ function addMessageToChat(role, content, model = null, timestamp = null, respons
 
     chatContainer.appendChild(messageDiv);
 
-    // Apply syntax highlighting to any new code blocks
     messageDiv.querySelectorAll('pre code').forEach((block) => {
         hljs.highlightElement(block);
     });
@@ -706,20 +788,265 @@ function addMessageToChat(role, content, model = null, timestamp = null, respons
     scrollToBottom();
 }
 
-// Delete conversation
+// Copy functions
+async function copyCodeBlock(codeId) {
+    try {
+        const codeElement = document.getElementById(codeId);
+        if (!codeElement) return;
+
+        let codeText = codeElement.textContent || codeElement.innerText || '';
+        codeText = codeText.trim();
+
+        if (!codeText) {
+            throw new Error('No code content found to copy');
+        }
+
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(codeText);
+            showCodeCopySuccess(codeId);
+        } else {
+            const success = copyTextFallback(codeText);
+            if (success) {
+                showCodeCopySuccess(codeId);
+            } else {
+                showCodeCopyError(codeId);
+            }
+        }
+
+    } catch (err) {
+        console.error('Code copy failed:', err);
+        showCodeCopyError(codeId);
+    }
+}
+
+function showCodeCopySuccess(codeId) {
+    const button = document.querySelector(`button[onclick*="${codeId}"]`);
+    if (button) {
+        const originalText = button.textContent;
+        button.textContent = '✓ Copied';
+        button.classList.add('copied');
+        showCopyNotification();
+
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.classList.remove('copied');
+        }, 2000);
+    }
+}
+
+function showCodeCopyError(codeId) {
+    const button = document.querySelector(`button[onclick*="${codeId}"]`);
+    if (button) {
+        const originalText = button.textContent;
+        button.textContent = '❌ Failed';
+        button.style.color = '#da3633';
+
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.style.color = '';
+        }, 2000);
+    }
+}
+
+async function copyMessage(button) {
+    try {
+        const messageContent = button.closest('.message-content');
+        const tempDiv = document.createElement('div');
+        const clonedContent = messageContent.cloneNode(true);
+
+        const metaDiv = clonedContent.querySelector('.message-meta');
+        const statsDiv = clonedContent.querySelector('.message-stats');
+        const copyBtn = clonedContent.querySelector('.copy-btn');
+        const codeHeaders = clonedContent.querySelectorAll('.code-block-header');
+        const thinkingContent = clonedContent.querySelectorAll('.thinking-content');
+
+        if (metaDiv) metaDiv.remove();
+        if (statsDiv) statsDiv.remove();
+        if (copyBtn) copyBtn.remove();
+        codeHeaders.forEach(header => header.remove());
+        thinkingContent.forEach(thinking => thinking.remove());
+
+        tempDiv.appendChild(clonedContent);
+
+        let textContent = tempDiv.textContent || tempDiv.innerText || '';
+        textContent = textContent.trim();
+
+        if (!textContent) {
+            throw new Error('No text content found to copy');
+        }
+
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(textContent);
+            showCopySuccess(button);
+        } else {
+            const success = copyTextFallback(textContent);
+            if (success) {
+                showCopySuccess(button);
+            } else {
+                showCopyError(button);
+            }
+        }
+
+    } catch (err) {
+        console.error('Copy failed:', err);
+        showCopyError(button);
+    }
+}
+
+function copyTextFallback(text) {
+    try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.top = '0';
+        textArea.style.left = '0';
+        textArea.style.width = '2em';
+        textArea.style.height = '2em';
+        textArea.style.padding = '0';
+        textArea.style.border = 'none';
+        textArea.style.outline = 'none';
+        textArea.style.boxShadow = 'none';
+        textArea.style.background = 'transparent';
+        textArea.style.opacity = '0';
+        textArea.setAttribute('readonly', '');
+
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.setSelectionRange(0, textArea.value.length);
+        textArea.select();
+
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        return successful;
+
+    } catch (err) {
+        console.error('Fallback copy error:', err);
+        return false;
+    }
+}
+
+function showCopySuccess(button) {
+    button.textContent = '✓';
+    button.classList.add('copied');
+    showCopyNotification();
+
+    setTimeout(() => {
+        button.textContent = '📋';
+        button.classList.remove('copied');
+    }, 2000);
+}
+
+function showCopyError(button) {
+    button.textContent = '❌';
+    button.style.color = '#da3633';
+
+    setTimeout(() => {
+        button.textContent = '📋';
+        button.style.color = '';
+    }, 2000);
+}
+
+function showCopyNotification() {
+    const notification = document.getElementById('copyNotification');
+    if (notification) {
+        notification.classList.add('show');
+        setTimeout(() => {
+            notification.classList.remove('show');
+        }, 2000);
+    }
+}
+
+// Utility functions
+function startRename(conversationId) {
+    const titleElement = document.querySelector(`[data-conv-id="${conversationId}"]`);
+    if (!titleElement || titleElement.querySelector('input')) return;
+
+    const currentTitle = titleElement.textContent;
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'conversation-title-input';
+    input.value = currentTitle;
+    input.maxLength = 100;
+
+    const saveRename = async () => {
+        const newTitle = input.value.trim();
+        if (!newTitle || newTitle === currentTitle) {
+            cancelRename();
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/conversations/${conversationId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title: newTitle })
+            });
+
+            if (response.ok) {
+                if (input.parentNode === titleElement) {
+                    titleElement.removeChild(input);
+                }
+                titleElement.textContent = newTitle;
+
+                if (currentConversationId === conversationId) {
+                    document.getElementById('chatTitle').textContent = newTitle;
+                }
+
+                await loadConversations();
+            } else {
+                const error = await response.json();
+                showNotification(error.error || 'Failed to rename conversation', 'error');
+                cancelRename();
+            }
+        } catch (error) {
+            console.error('Error renaming conversation:', error);
+            showNotification('Failed to rename conversation', 'error');
+            cancelRename();
+        }
+    };
+
+    const cancelRename = () => {
+        if (input.parentNode === titleElement) {
+            titleElement.removeChild(input);
+        }
+        titleElement.textContent = currentTitle;
+    };
+
+    input.onblur = saveRename;
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveRename();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelRename();
+        }
+    };
+
+    titleElement.textContent = '';
+    titleElement.appendChild(input);
+    input.focus();
+    input.select();
+}
+
 async function deleteConversation(conversationId) {
     if (!confirm('Delete this conversation?')) return;
 
     try {
-        await fetch(`/api/conversations/${conversationId}`, {
+        const response = await fetch(`/api/conversations/${conversationId}`, {
             method: 'DELETE'
         });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
         if (currentConversationId === conversationId) {
             currentConversationId = null;
             document.getElementById('chatContainer').innerHTML = `
                 <div class="no-conversation">
-                    <h2>Welcome to chat-o-llama</h2>
+                    <h2>Welcome to llama-chat</h2>
                     <p>Create a new chat to get started</p>
                 </div>
             `;
@@ -728,12 +1055,14 @@ async function deleteConversation(conversationId) {
         }
 
         await loadConversations();
+        showNotification('Conversation deleted successfully', 'success');
+        
     } catch (error) {
         console.error('Error deleting conversation:', error);
+        showNotification('Failed to delete conversation', 'error');
     }
 }
 
-// Search conversations
 async function searchConversations(event) {
     const query = event.target.value.trim();
     const resultsDiv = document.getElementById('searchResults');
@@ -745,11 +1074,16 @@ async function searchConversations(event) {
 
     try {
         const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const data = await response.json();
 
         resultsDiv.innerHTML = '';
 
-        if (data.results.length === 0) {
+        if (!data.results || data.results.length === 0) {
             resultsDiv.innerHTML = '<div class="search-result">No results found</div>';
         } else {
             data.results.forEach(result => {
@@ -764,9 +1098,15 @@ async function searchConversations(event) {
                 const preview = result.content.length > 100 ?
                     result.content.substring(0, 100) + '...' : result.content;
 
+                let modelDisplay = result.model;
+                if (hasEnhancedBackend && result.model_file) {
+                    modelDisplay = result.model_file;
+                }
+
                 div.innerHTML = `
                     <div class="search-result-title">${escapeHtml(result.title)}</div>
                     <div class="search-result-content">${escapeHtml(preview)}</div>
+                    <div class="search-result-meta">${modelDisplay}</div>
                 `;
 
                 resultsDiv.appendChild(div);
@@ -776,10 +1116,10 @@ async function searchConversations(event) {
         resultsDiv.style.display = 'block';
     } catch (error) {
         console.error('Error searching:', error);
+        showNotification('Search failed', 'error');
     }
 }
 
-// Handle key events
 function handleKeyDown(event) {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();
@@ -787,36 +1127,94 @@ function handleKeyDown(event) {
     }
 }
 
-// Auto-resize textarea
 function autoResize(textarea) {
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
 }
 
-// Scroll to bottom
 function scrollToBottom() {
     const chatContainer = document.getElementById('chatContainer');
     chatContainer.scrollTop = chatContainer.scrollHeight;
 }
 
-// Escape HTML
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
 
-// Event Listeners
+function estimateTokens(text) {
+    return Math.ceil(text.length / 4);
+}
+
+// Server health monitoring
+async function checkServerHealth() {
+    try {
+        const status = await checkServerStatus();
+        const statusIndicators = document.querySelectorAll('.server-status');
+        const statusText = document.getElementById('serverStatusText');
+
+        statusIndicators.forEach(indicator => {
+            if (status.server_running) {
+                indicator.className = 'server-status online';
+                indicator.title = `Server online${status.current_model ? ' - ' + status.current_model : ''}`;
+            } else {
+                indicator.className = 'server-status offline';
+                indicator.title = 'Server offline';
+            }
+        });
+
+        if (statusText) {
+            statusText.textContent = status.server_running ? 'Online' : 'Offline';
+            statusText.style.color = status.server_running ? '#238636' : '#da3633';
+        }
+
+        return status.server_running;
+    } catch (error) {
+        console.error('Health check failed:', error);
+
+        const statusIndicators = document.querySelectorAll('.server-status');
+        const statusText = document.getElementById('serverStatusText');
+
+        statusIndicators.forEach(indicator => {
+            indicator.className = 'server-status offline';
+            indicator.title = 'Connection error';
+        });
+
+        if (statusText) {
+            statusText.textContent = 'Error';
+            statusText.style.color = '#da3633';
+        }
+
+        return false;
+    }
+}
+
+// Event listeners
 document.addEventListener('DOMContentLoaded', function() {
     // Hide search results when clicking outside
     document.addEventListener('click', function(event) {
         const searchBox = document.getElementById('searchBox');
         const searchResults = document.getElementById('searchResults');
 
-        if (!searchBox.contains(event.target) && !searchResults.contains(event.target)) {
+        if (searchBox && searchResults &&
+            !searchBox.contains(event.target) &&
+            !searchResults.contains(event.target)) {
             searchResults.style.display = 'none';
         }
     });
+
+    // Add model selection change handler
+    const modelSelect = document.getElementById('modelSelect');
+    if (modelSelect) {
+        modelSelect.addEventListener('change', onModelChange);
+    }
+
+    // Start periodic health checks
+    setInterval(checkServerHealth, 30000); // Check every 30 seconds
+
+    // Initial health check
+    setTimeout(checkServerHealth, 2000);
 });
 
 // Initialize app when page loads

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-llama.cpp Chat Frontend with History Storage
-A Flask web application for chatting with llama.cpp models with persistent history.
-Enhanced with response metrics tracking.
+llama.cpp Chat Frontend with Dynamic Model Switching
+Enhanced Flask web application with seamless model switching capability.
 """
 
 import os
@@ -10,6 +9,9 @@ import sqlite3
 import requests
 import json
 import time
+import subprocess
+import signal
+import glob
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, g
 import logging
@@ -19,11 +21,45 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# For future use
 app.config['SECRET_KEY'] = 'your-secret-key-change-this'
-
-# Enable threading for better performance
 app.config['THREADED'] = True
+
+
+@app.errorhandler(404)
+def not_found_error(error):
+    """Handle 404 errors with JSON response for API calls."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'error': 'Endpoint not found',
+            'success': False
+        }), 404
+    return render_template('404.html'), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors with JSON response for API calls."""
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'error': 'Internal server error',
+            'success': False
+        }), 500
+    return render_template('500.html'), 500
+
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    """Handle all unhandled exceptions."""
+    logger.error(f"Unhandled exception: {e}", exc_info=True)
+
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'error': f'Server error: {str(e)}',
+            'success': False
+        }), 500
+    else:
+        # For non-API requests, return HTML error page
+        return render_template('error.html', error=str(e)), 500
 
 # Load configuration from JSON file
 
@@ -50,7 +86,8 @@ def get_default_config():
     return {
         "timeouts": {
             "llamacpp_timeout": 180,
-            "llamacpp_connect_timeout": 15
+            "llamacpp_connect_timeout": 15,
+            "model_switch_timeout": 60
         },
         "model_options": {
             "temperature": 0.5,
@@ -81,6 +118,11 @@ def get_default_config():
             "use_mlock": False,
             "embedding_only": False,
             "numa": False
+        },
+        "models": {
+            "directory": "./models",
+            "auto_detect": True,
+            "default_model": None
         }
     }
 
@@ -93,17 +135,22 @@ LLAMACPP_HOST = os.getenv('LLAMACPP_HOST', 'localhost')
 LLAMACPP_PORT = os.getenv('LLAMACPP_PORT', '8080')
 LLAMACPP_API_URL = os.getenv(
     'LLAMACPP_API_URL', f'http://{LLAMACPP_HOST}:{LLAMACPP_PORT}')
-
+MODELS_DIR = os.getenv('MODELS_DIR', CONFIG['models']['directory'])
 DATABASE_PATH = os.getenv('DATABASE_PATH', 'llamacpp_chat.db')
 LLAMACPP_TIMEOUT = CONFIG['timeouts']['llamacpp_timeout']
 LLAMACPP_CONNECT_TIMEOUT = CONFIG['timeouts']['llamacpp_connect_timeout']
+MODEL_SWITCH_TIMEOUT = CONFIG['timeouts']['model_switch_timeout']
 
-# Enhanced database schema with metrics tracking
+# PID file for llama.cpp server management
+LLAMACPP_PID_FILE = os.getenv('LLAMACPP_PID_FILE', 'llamacpp.pid')
+
+# Enhanced database schema with model tracking
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
     model TEXT NOT NULL,
+    model_file TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -114,6 +161,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
     model TEXT,
+    model_file TEXT,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     response_time_ms INTEGER,
     estimated_tokens INTEGER,
@@ -124,6 +172,40 @@ CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id
 CREATE INDEX IF NOT EXISTS idx_conversations_updated ON conversations(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 '''
+
+
+def migrate_database():
+    """Migrate database to add missing columns."""
+    try:
+        with sqlite3.connect(DATABASE_PATH) as conn:
+            cursor = conn.cursor()
+
+            # Check if model_file column exists in conversations table
+            cursor.execute("PRAGMA table_info(conversations)")
+            columns = [column[1] for column in cursor.fetchall()]
+
+            if 'model_file' not in columns:
+                logger.info("Adding model_file column to conversations table")
+                cursor.execute(
+                    "ALTER TABLE conversations ADD COLUMN model_file TEXT")
+                conn.commit()
+                logger.info("Successfully added model_file column")
+
+            # Check if model_file column exists in messages table
+            cursor.execute("PRAGMA table_info(messages)")
+            columns = [column[1] for column in cursor.fetchall()]
+
+            if 'model_file' not in columns:
+                logger.info("Adding model_file column to messages table")
+                cursor.execute(
+                    "ALTER TABLE messages ADD COLUMN model_file TEXT")
+                conn.commit()
+                logger.info(
+                    "Successfully added model_file column to messages table")
+
+    except Exception as e:
+        logger.error(f"Error migrating database: {e}")
+        raise
 
 
 def get_db():
@@ -148,6 +230,9 @@ def init_db():
         conn.commit()
     logger.info(f"Database initialized: {DATABASE_PATH}")
 
+    # Run migrations
+    migrate_database()
+
 
 @app.teardown_appcontext
 def close_db_on_teardown(error):
@@ -156,57 +241,286 @@ def close_db_on_teardown(error):
 
 def estimate_tokens(text):
     """Estimate token count based on character length."""
-    # Rough estimation: ~4 characters per token for English text
     return max(1, len(text) // 4)
 
 
-class LlamaCppAPI:
-    """llama.cpp API client with enhanced metrics tracking."""
+class ModelManager:
+    """Manages available models and current model state."""
 
     @staticmethod
-    def get_models():
-        """Get available models from llama.cpp server."""
+    def get_available_models():
+        """Get all available .gguf models in the models directory."""
+        if not os.path.exists(MODELS_DIR):
+            logger.warning(f"Models directory not found: {MODELS_DIR}")
+            return []
+
+        model_files = glob.glob(os.path.join(MODELS_DIR, "*.gguf"))
+        models = []
+
+        for model_path in sorted(model_files):
+            model_name = os.path.basename(model_path)
+            file_size = os.path.getsize(model_path)
+            models.append({
+                'name': model_name,
+                'file_path': model_path,
+                'size_mb': round(file_size / (1024 * 1024), 1),
+                'size_bytes': file_size
+            })
+
+        logger.info(f"Found {len(models)} available models")
+        return models
+
+    # @staticmethod
+    # def get_current_model():
+    #     """Get the currently loaded model from llama.cpp server."""
+    #     try:
+    #         response = requests.get(
+    #             f"{LLAMACPP_API_URL}/v1/models",
+    #             timeout=(LLAMACPP_CONNECT_TIMEOUT, 10)
+    #         )
+
+    #         if response.status_code == 200:
+    #             data = response.json()
+    #             if 'data' in data and len(data['data']) > 0:
+    #                 return data['data'][0]['id']
+    #             return "unknown-model"
+    #         return None
+    #     except Exception as e:
+    #         logger.error(f"Error getting current model: {e}")
+    #         return None
+
+    @staticmethod
+    def get_current_model():
+        """Get the currently loaded model from llama.cpp server."""
         try:
-            print(
-                f"Attempting to fetch model info from {LLAMACPP_API_URL}/v1/models")
             response = requests.get(
                 f"{LLAMACPP_API_URL}/v1/models",
-                timeout=(LLAMACPP_CONNECT_TIMEOUT, 30)
+                timeout=(LLAMACPP_CONNECT_TIMEOUT, 10)
             )
 
             if response.status_code == 200:
                 data = response.json()
-                # llama.cpp typically serves one model, but check format
-                if 'data' in data:
-                    models = [model['id'] for model in data['data']]
-                else:
-                    # Fallback: try to get model name from server info
+                if 'data' in data and len(data['data']) > 0:
+                    model_path = data['data'][0]['id']
+                    # Extract just the filename from the full path
+                    import os
+                    model_filename = os.path.basename(model_path)
+                    logger.info(
+                        f"Current model path: {model_path}, filename: {model_filename}")
+                    return model_filename
+                return "unknown-model"
+            return None
+        except Exception as e:
+            logger.error(f"Error getting current model: {e}")
+            return None
+
+
+class LlamaCppManager:
+    """Manages llama.cpp server lifecycle for model switching."""
+
+    @staticmethod
+    def is_server_running():
+        """Check if llama.cpp server is running."""
+        try:
+            response = requests.get(
+                f"{LLAMACPP_API_URL}/health",
+                timeout=(LLAMACPP_CONNECT_TIMEOUT, 5)
+            )
+            return response.status_code == 200
+        except:
+            try:
+                # Fallback: try models endpoint
+                response = requests.get(
+                    f"{LLAMACPP_API_URL}/v1/models",
+                    timeout=(LLAMACPP_CONNECT_TIMEOUT, 5)
+                )
+                return response.status_code == 200
+            except:
+                return False
+
+    @staticmethod
+    def stop_server():
+        """Stop the llama.cpp server."""
+        try:
+            if os.path.exists(LLAMACPP_PID_FILE):
+                with open(LLAMACPP_PID_FILE, 'r') as f:
+                    pid = int(f.read().strip())
+
+                # Try graceful shutdown first
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    time.sleep(3)
+
+                    # Check if process is still running
                     try:
-                        health_response = requests.get(
-                            f"{LLAMACPP_API_URL}/health")
-                        if health_response.status_code == 200:
-                            models = ["llama-model"]  # Default name
-                        else:
-                            models = []
-                    except:
-                        models = ["llama-model"]  # Default fallback
+                        # This doesn't kill, just checks if process exists
+                        os.kill(pid, 0)
+                        # Still running, force kill
+                        os.kill(pid, signal.SIGKILL)
+                        logger.info("Force killed llama.cpp server")
+                    except OSError:
+                        # Process already terminated
+                        pass
 
-                print(f"Successfully fetched {len(models)} models: {models}")
-                return models
-            else:
-                print(
-                    f"llama.cpp API returned status {response.status_code}: {response.text}")
-                return []
+                except OSError as e:
+                    logger.warning(f"Process {pid} not found: {e}")
 
-        except requests.exceptions.ConnectionError as e:
-            print(f"Connection error to llama.cpp: {e}")
-            print("Make sure llama.cpp server is running")
-            return []
-        except requests.exceptions.Timeout as e:
-            print(f"Timeout connecting to llama.cpp: {e}")
+                # Remove PID file
+                os.remove(LLAMACPP_PID_FILE)
+                logger.info("Stopped llama.cpp server")
+                return True
+        except Exception as e:
+            logger.error(f"Error stopping server: {e}")
+
+        # Fallback: kill any llama-server processes
+        try:
+            subprocess.run(["pkill", "-f", "llama-server"],
+                           check=False, capture_output=True)
+            if os.path.exists(LLAMACPP_PID_FILE):
+                os.remove(LLAMACPP_PID_FILE)
+            time.sleep(2)
+            return True
+        except Exception as e:
+            logger.error(f"Error with fallback kill: {e}")
+            return False
+
+    @staticmethod
+    def start_server(model_path):
+        """Start llama.cpp server with specified model."""
+        try:
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(f"Model file not found: {model_path}")
+
+            # Determine optimal settings
+            threads = CONFIG['performance']['num_thread']
+            if threads == -1:
+                threads = os.cpu_count() or 4
+
+            context_size = CONFIG['model_options']['num_ctx']
+            batch_size = CONFIG['performance']['batch_size']
+            gpu_layers = CONFIG['performance']['num_gpu']
+
+            # Build command - use the same format that works in debug script
+            cmd = [
+                "llama-server",
+                "--model", model_path,
+                "--host", LLAMACPP_HOST,
+                "--port", str(LLAMACPP_PORT),
+                "--ctx-size", str(context_size),
+                "--batch-size", str(batch_size),
+                "--threads", str(threads)
+            ]
+
+            # Add GPU layers if configured
+            if gpu_layers > 0:
+                cmd.extend(["--n-gpu-layers", str(gpu_layers)])
+
+            logger.info(
+                f"Starting llama.cpp server with command: {' '.join(cmd)}")
+
+            # Ensure we're in the right working directory
+            original_cwd = os.getcwd()
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            os.chdir(script_dir)
+
+            try:
+                # Start server with explicit environment
+                env = os.environ.copy()
+                env['PATH'] = os.environ.get('PATH', '')
+
+                # Start server
+                with open("llamacpp.log", "a") as log_file:
+                    process = subprocess.Popen(
+                        cmd,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT,
+                        env=env,
+                        cwd=script_dir
+                    )
+
+                # Save PID
+                with open(LLAMACPP_PID_FILE, 'w') as f:
+                    f.write(str(process.pid))
+
+                logger.info(
+                    f"Started llama.cpp server with PID: {process.pid}")
+
+                # Wait for server to be ready - increase attempts and reduce sleep
+                max_attempts = 60  # 2 minutes total
+                for attempt in range(max_attempts):
+                    time.sleep(2)
+
+                    # Check if process is still running
+                    if process.poll() is not None:
+                        logger.error(
+                            f"llama.cpp server process died with return code: {process.returncode}")
+                        return False
+
+                    # Check if server is responding
+                    try:
+                        response = requests.get(
+                            f"{LLAMACPP_API_URL}/v1/models",
+                            timeout=5
+                        )
+                        if response.status_code == 200:
+                            logger.info(
+                                f"llama.cpp server started successfully after {attempt + 1} attempts with model: {os.path.basename(model_path)}")
+                            return True
+                    except requests.exceptions.RequestException:
+                        # Server not ready yet, continue waiting
+                        pass
+
+                    if attempt % 10 == 9:  # Log progress every 20 seconds
+                        logger.info(
+                            f"Still waiting for server... attempt {attempt + 1}/{max_attempts}")
+
+                logger.error("Server failed to start within timeout")
+                return False
+
+            finally:
+                # Restore original working directory
+                os.chdir(original_cwd)
+
+        except Exception as e:
+            logger.error(f"Error starting server: {e}")
+            return False
+
+    @staticmethod
+    def switch_model(model_path):
+        """Switch to a different model by restarting the server."""
+        logger.info(f"Switching to model: {os.path.basename(model_path)}")
+
+        # Stop current server
+        if not LlamaCppManager.stop_server():
+            logger.warning(
+                "Failed to stop server cleanly, continuing anyway...")
+
+        # Wait a moment for cleanup
+        time.sleep(3)
+
+        # Start with new model
+        if not LlamaCppManager.start_server(model_path):
+            logger.error("Failed to start server with new model")
+            return False
+
+        logger.info(
+            f"Successfully switched to model: {os.path.basename(model_path)}")
+        return True
+
+
+class LlamaCppAPI:
+    """llama.cpp API client with enhanced model awareness."""
+
+    @staticmethod
+    def get_models():
+        """Get currently loaded model info."""
+        try:
+            current_model = ModelManager.get_current_model()
+            if current_model:
+                return [current_model]
             return []
         except Exception as e:
-            print(f"Unexpected error fetching models: {e}")
+            logger.error(f"Error getting models: {e}")
             return []
 
     @staticmethod
@@ -251,9 +565,6 @@ class LlamaCppAPI:
             if 'top_k' in CONFIG['model_options']:
                 payload['top_k'] = CONFIG['model_options']['top_k']
 
-            if 'min_p' in CONFIG['model_options']:
-                payload['min_p'] = CONFIG['model_options']['min_p']
-
             response = requests.post(
                 f"{LLAMACPP_API_URL}/v1/chat/completions",
                 json=payload,
@@ -297,49 +608,32 @@ class LlamaCppAPI:
 
         except requests.exceptions.ReadTimeout as e:
             response_time = int((time.time() - start_time) * 1000)
-            logger.error(
-                f"llama.cpp read timeout after {LLAMACPP_TIMEOUT} seconds: {e}")
+            logger.error(f"llama.cpp read timeout: {e}")
             return {
-                'response': f"Response timed out after {LLAMACPP_TIMEOUT} seconds. Try a shorter prompt or increase timeout.",
-                'response_time_ms': response_time,
-                'estimated_tokens': 0
-            }
-        except requests.exceptions.ConnectTimeout as e:
-            response_time = int((time.time() - start_time) * 1000)
-            logger.error(f"llama.cpp connection timeout: {e}")
-            return {
-                'response': "Connection to llama.cpp timed out. Make sure llama.cpp server is running and accessible.",
-                'response_time_ms': response_time,
-                'estimated_tokens': 0
-            }
-        except requests.RequestException as e:
-            response_time = int((time.time() - start_time) * 1000)
-            logger.error(f"llama.cpp API error: {e}")
-            return {
-                'response': f"Error connecting to llama.cpp: {str(e)}",
+                'response': f"Response timed out after {LLAMACPP_TIMEOUT} seconds.",
                 'response_time_ms': response_time,
                 'estimated_tokens': 0
             }
         except Exception as e:
             response_time = int((time.time() - start_time) * 1000)
-            logger.error(f"Unexpected error: {e}")
+            logger.error(f"API error: {e}")
             return {
-                'response': f"Unexpected error: {str(e)}",
+                'response': f"Error: {str(e)}",
                 'response_time_ms': response_time,
                 'estimated_tokens': 0
             }
 
 
 class ConversationManager:
-    """Manage conversations and messages with enhanced metrics."""
+    """Enhanced conversation management with model tracking."""
 
     @staticmethod
-    def create_conversation(title, model):
-        """Create a new conversation."""
+    def create_conversation(title, model, model_file=None):
+        """Create a new conversation with model info."""
         db = get_db()
         cursor = db.execute(
-            'INSERT INTO conversations (title, model) VALUES (?, ?)',
-            (title, model)
+            'INSERT INTO conversations (title, model, model_file) VALUES (?, ?, ?)',
+            (title, model, model_file)
         )
         db.commit()
         return cursor.lastrowid
@@ -372,6 +666,16 @@ class ConversationManager:
         db.commit()
 
     @staticmethod
+    def update_conversation_model(conversation_id, model, model_file=None):
+        """Update conversation model info."""
+        db = get_db()
+        db.execute(
+            'UPDATE conversations SET model = ?, model_file = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            (model, model_file, conversation_id)
+        )
+        db.commit()
+
+    @staticmethod
     def delete_conversation(conversation_id):
         """Delete conversation and all messages."""
         db = get_db()
@@ -380,13 +684,13 @@ class ConversationManager:
         db.commit()
 
     @staticmethod
-    def add_message(conversation_id, role, content, model=None, response_time_ms=None, estimated_tokens=None):
-        """Add message to conversation with metrics."""
+    def add_message(conversation_id, role, content, model=None, model_file=None, response_time_ms=None, estimated_tokens=None):
+        """Add message to conversation with model info and metrics."""
         db = get_db()
         db.execute(
-            'INSERT INTO messages (conversation_id, role, content, model, response_time_ms, estimated_tokens) VALUES (?, ?, ?, ?, ?, ?)',
+            'INSERT INTO messages (conversation_id, role, content, model, model_file, response_time_ms, estimated_tokens) VALUES (?, ?, ?, ?, ?, ?, ?)',
             (conversation_id, role, content, model,
-             response_time_ms, estimated_tokens)
+             model_file, response_time_ms, estimated_tokens)
         )
         db.commit()
         ConversationManager.update_conversation_timestamp(conversation_id)
@@ -416,21 +720,49 @@ class ConversationManager:
 
         return dict(stats) if stats else {}
 
-
 # Routes
+
+
 @app.route('/')
 def index():
     """Main chat interface."""
     return render_template('index.html')
 
 
-@app.route('/api/models')
-def api_models():
-    """Get available models."""
+@app.route('/api/models/available')
+def api_available_models():
+    """Get all available models in the models directory."""
     try:
-        models = LlamaCppAPI.get_models()
+        models = ModelManager.get_available_models()
+        current_model = ModelManager.get_current_model()
+
         return jsonify({
             'models': models,
+            'current_model': current_model,
+            'count': len(models),
+            'models_dir': MODELS_DIR
+        })
+    except Exception as e:
+        logger.error(f"Error in /api/models/available endpoint: {e}")
+        return jsonify({
+            'models': [],
+            'current_model': None,
+            'count': 0,
+            'error': str(e),
+            'models_dir': MODELS_DIR
+        }), 500
+
+
+@app.route('/api/models')
+def api_models():
+    """Get currently loaded model."""
+    try:
+        models = LlamaCppAPI.get_models()
+        current_model = ModelManager.get_current_model()
+
+        return jsonify({
+            'models': models,
+            'current_model': current_model,
             'count': len(models),
             'llamacpp_url': LLAMACPP_API_URL
         })
@@ -438,188 +770,482 @@ def api_models():
         logger.error(f"Error in /api/models endpoint: {e}")
         return jsonify({
             'models': [],
+            'current_model': None,
             'count': 0,
             'error': str(e),
             'llamacpp_url': LLAMACPP_API_URL
         }), 500
 
 
-@app.route('/api/config')
-def api_config():
-    """Get current configuration (excluding sensitive data)."""
-    config_display = {
-        'timeouts': CONFIG['timeouts'],
-        'model_options': CONFIG['model_options'],
-        'performance': CONFIG['performance'],
-        'response_optimization': {k: v for k, v in CONFIG['response_optimization'].items() if k != 'system_prompt'}
-    }
-    return jsonify(config_display)
+@app.route('/api/models/switch', methods=['POST'])
+def api_switch_model():
+    """Switch to a different model."""
+    try:
+        data = request.get_json()
+        model_name = data.get('model_name')
+
+        if not model_name:
+            return jsonify({'error': 'Model name is required'}), 400
+
+        # Find the model file
+        model_path = os.path.join(MODELS_DIR, model_name)
+        if not os.path.exists(model_path):
+            return jsonify({'error': f'Model file not found: {model_name}'}), 404
+
+        # Switch model
+        logger.info(f"Switching to model: {model_name}")
+        success = LlamaCppManager.switch_model(model_path)
+
+        if success:
+            # Verify the switch was successful
+            time.sleep(2)  # Give server time to fully initialize
+            current_model = ModelManager.get_current_model()
+
+            return jsonify({
+                'success': True,
+                'message': f'Successfully switched to {model_name}',
+                'current_model': current_model,
+                'model_file': model_name
+            })
+        else:
+            return jsonify({
+                'error': f'Failed to switch to model: {model_name}',
+                'success': False
+            }), 500
+
+    except Exception as e:
+        logger.error(f"Error switching model: {e}")
+        return jsonify({
+            'error': f'Error switching model: {str(e)}',
+            'success': False
+        }), 500
+
+
+@app.route('/api/server/status')
+def api_server_status():
+    """Get server status and current model info."""
+    try:
+        is_running = LlamaCppManager.is_server_running()
+        current_model = ModelManager.get_current_model() if is_running else None
+
+        return jsonify({
+            'server_running': is_running,
+            'current_model': current_model,
+            'llamacpp_url': LLAMACPP_API_URL
+        })
+    except Exception as e:
+        logger.error(f"Error checking server status: {e}")
+        return jsonify({
+            'server_running': False,
+            'current_model': None,
+            'error': str(e)
+        }), 500
+
+# Existing routes with enhanced model tracking...
 
 
 @app.route('/api/conversations')
 def api_conversations():
     """Get all conversations."""
-    conversations = ConversationManager.get_conversations()
-    return jsonify({
-        'conversations': [dict(conv) for conv in conversations]
-    })
+    try:
+        conversations = ConversationManager.get_conversations()
+        return jsonify({
+            'conversations': [dict(conv) for conv in conversations],
+            'success': True
+        })
+    except Exception as e:
+        logger.error(f"Error loading conversations: {e}")
+        return jsonify({
+            'conversations': [],
+            'error': f'Failed to load conversations: {str(e)}',
+            'success': False
+        }), 500
 
 
 @app.route('/api/conversations', methods=['POST'])
 def api_create_conversation():
-    """Create new conversation."""
-    data = request.get_json()
-    title = data.get('title', 'New Chat')
-    model = data.get('model', 'llama-model')
+    """Create new conversation with model info."""
+    try:
+        data = request.get_json()
+        logger.info(f"Creating conversation with data: {data}")
 
-    conv_id = ConversationManager.create_conversation(title, model)
-    return jsonify({'conversation_id': conv_id})
+        if not data:
+            data = {}
+
+        title = data.get('title', 'New Chat')
+        model = data.get('model', 'unknown')
+        model_file = data.get('model_file')
+
+        # If no model_file provided, try to get current model
+        if not model_file:
+            try:
+                available_models = ModelManager.get_available_models()
+                current_model = ModelManager.get_current_model()
+                logger.info(
+                    f"Available models: {len(available_models)}, Current model: {current_model}")
+
+                # Try to match current model to file
+                if current_model and available_models:
+                    for available_model in available_models:
+                        if current_model in available_model['name']:
+                            model_file = available_model['name']
+                            model = current_model
+                            break
+
+                # If no match found but we have available models, use the first one
+                if not model_file and available_models:
+                    model_file = available_models[0]['name']
+                    model = available_models[0]['name']
+                    logger.info(f"Using first available model: {model_file}")
+
+            except Exception as e:
+                logger.warning(f"Error detecting current model: {e}")
+                # Continue with default values
+                pass
+
+        # Create conversation
+        logger.info(
+            f"Creating conversation: title='{title}', model='{model}', model_file='{model_file}'")
+        conv_id = ConversationManager.create_conversation(
+            title, model, model_file)
+        logger.info(f"Created conversation with ID: {conv_id}")
+
+        response_data = {
+            'conversation_id': conv_id,
+            'success': True,
+            'model': model,
+            'model_file': model_file
+        }
+        logger.info(f"Returning response: {response_data}")
+
+        return jsonify(response_data)
+
+    except Exception as e:
+        logger.error(f"Error creating conversation: {e}", exc_info=True)
+        return jsonify({
+            'error': f'Failed to create conversation: {str(e)}',
+            'success': False
+        }), 500
 
 
 @app.route('/api/conversations/<int:conversation_id>')
 def api_get_conversation(conversation_id):
     """Get conversation with messages and stats."""
-    conversation = ConversationManager.get_conversation(conversation_id)
-    if not conversation:
-        return jsonify({'error': 'Conversation not found'}), 404
+    try:
+        logger.info(f"Loading conversation ID: {conversation_id}")
 
-    messages = ConversationManager.get_messages(conversation_id)
-    stats = ConversationManager.get_conversation_stats(conversation_id)
+        conversation = ConversationManager.get_conversation(conversation_id)
+        logger.info(
+            f"Found conversation: {dict(conversation) if conversation else None}")
 
-    return jsonify({
-        'conversation': dict(conversation),
-        'messages': [dict(msg) for msg in messages],
-        'stats': stats
-    })
+        if not conversation:
+            logger.warning(f"Conversation {conversation_id} not found")
+            return jsonify({
+                'error': 'Conversation not found',
+                'success': False
+            }), 404
+
+        messages = ConversationManager.get_messages(conversation_id)
+        logger.info(
+            f"Found {len(messages)} messages for conversation {conversation_id}")
+
+        stats = ConversationManager.get_conversation_stats(conversation_id)
+        logger.info(f"Stats for conversation {conversation_id}: {stats}")
+
+        response_data = {
+            'conversation': dict(conversation),
+            'messages': [dict(msg) for msg in messages],
+            'stats': stats,
+            'success': True
+        }
+        logger.info(f"Returning conversation data: {response_data}")
+
+        return jsonify(response_data)
+
+    except Exception as e:
+        logger.error(
+            f"Error loading conversation {conversation_id}: {e}", exc_info=True)
+        return jsonify({
+            'error': f'Failed to load conversation: {str(e)}',
+            'success': False
+        }), 500
 
 
 @app.route('/api/conversations/<int:conversation_id>', methods=['DELETE'])
 def api_delete_conversation(conversation_id):
     """Delete conversation."""
-    ConversationManager.delete_conversation(conversation_id)
-    return jsonify({'success': True})
+    try:
+        # Check if conversation exists first
+        conversation = ConversationManager.get_conversation(conversation_id)
+        if not conversation:
+            return jsonify({
+                'error': 'Conversation not found',
+                'success': False
+            }), 404
+
+        ConversationManager.delete_conversation(conversation_id)
+        return jsonify({
+            'success': True,
+            'message': 'Conversation deleted successfully'
+        })
+    except Exception as e:
+        logger.error(f"Error deleting conversation {conversation_id}: {e}")
+        return jsonify({
+            'error': f'Failed to delete conversation: {str(e)}',
+            'success': False
+        }), 500
 
 
 @app.route('/api/conversations/<int:conversation_id>', methods=['PUT'])
 def api_update_conversation(conversation_id):
     """Update conversation (rename)."""
-    data = request.get_json()
-    new_title = data.get('title', '').strip()
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'error': 'No data provided',
+                'success': False
+            }), 400
 
-    if not new_title:
-        return jsonify({'error': 'Title cannot be empty'}), 400
+        new_title = data.get('title', '').strip()
 
-    if len(new_title) > 100:
-        return jsonify({'error': 'Title too long (max 100 characters)'}), 400
+        if not new_title:
+            return jsonify({
+                'error': 'Title cannot be empty',
+                'success': False
+            }), 400
 
-    # Update the conversation title
-    db = get_db()
-    result = db.execute(
-        'UPDATE conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-        (new_title, conversation_id)
-    )
-    db.commit()
+        if len(new_title) > 100:
+            return jsonify({
+                'error': 'Title too long (max 100 characters)',
+                'success': False
+            }), 400
 
-    if result.rowcount == 0:
-        return jsonify({'error': 'Conversation not found'}), 404
+        # Update the conversation title
+        db = get_db()
+        result = db.execute(
+            'UPDATE conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            (new_title, conversation_id)
+        )
+        db.commit()
 
-    return jsonify({'success': True, 'title': new_title})
+        if result.rowcount == 0:
+            return jsonify({
+                'error': 'Conversation not found',
+                'success': False
+            }), 404
+
+        return jsonify({
+            'success': True,
+            'title': new_title,
+            'message': 'Conversation updated successfully'
+        })
+    except Exception as e:
+        logger.error(f"Error updating conversation {conversation_id}: {e}")
+        return jsonify({
+            'error': f'Failed to update conversation: {str(e)}',
+            'success': False
+        }), 500
 
 
 @app.route('/api/chat', methods=['POST'])
 def api_chat():
-    """Send message and get response with enhanced metrics."""
-    data = request.get_json()
-    conversation_id = data.get('conversation_id')
-    message = data.get('message')
-    model = data.get('model', 'llama-model')
+    """Send message and get response with enhanced model tracking."""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                'error': 'No data provided',
+                'success': False
+            }), 400
 
-    if not conversation_id or not message:
-        return jsonify({'error': 'Missing conversation_id or message'}), 400
+        conversation_id = data.get('conversation_id')
+        message = data.get('message')
+        model = data.get('model', 'unknown')
+        requested_model_file = data.get('model_file')
 
-    # Add user message
-    user_tokens = estimate_tokens(message)
-    ConversationManager.add_message(
-        conversation_id, 'user', message, model, None, user_tokens
-    )
+        if not conversation_id or not message:
+            return jsonify({
+                'error': 'Missing conversation_id or message',
+                'success': False
+            }), 400
 
-    # Get conversation history for context
-    messages = ConversationManager.get_messages(conversation_id)
-    history = [{'role': msg['role'], 'content': msg['content']}
-               for msg in messages[:-1]]
+        # Get current conversation to check if model switch is needed
+        conversation = ConversationManager.get_conversation(conversation_id)
+        if not conversation:
+            return jsonify({
+                'error': 'Conversation not found',
+                'success': False
+            }), 404
 
-    # Generate response with metrics
-    response_data = LlamaCppAPI.generate_response(model, message, history)
+        current_model_file = None
 
-    # Add assistant response with metrics
-    ConversationManager.add_message(
-        conversation_id,
-        'assistant',
-        response_data['response'],
-        model,
-        response_data['response_time_ms'],
-        response_data['estimated_tokens']
-    )
+        # If a specific model was requested, try to switch to it
+        if requested_model_file:
+            try:
+                current_model = ModelManager.get_current_model()
+                available_models = ModelManager.get_available_models()
 
-    return jsonify({
-        'response': response_data['response'],
-        'model': model,
-        'response_time_ms': response_data['response_time_ms'],
-        'estimated_tokens': response_data['estimated_tokens'],
-        'metrics': {
-            'completion_tokens': response_data.get('completion_tokens'),
-            'prompt_tokens': response_data.get('prompt_tokens'),
-            'total_tokens': response_data.get('total_tokens')
-        }
-    })
+                # Check if we need to switch models
+                model_needs_switch = True
+                for available_model in available_models:
+                    if (available_model['name'] == requested_model_file and
+                            current_model and requested_model_file in current_model):
+                        model_needs_switch = False
+                        break
+
+                if model_needs_switch:
+                    model_path = os.path.join(MODELS_DIR, requested_model_file)
+                    if os.path.exists(model_path):
+                        logger.info(
+                            f"Switching to requested model: {requested_model_file}")
+                        success = LlamaCppManager.switch_model(model_path)
+                        if not success:
+                            return jsonify({
+                                'error': f'Failed to switch to model: {requested_model_file}',
+                                'success': False
+                            }), 500
+
+                        # Update conversation model
+                        ConversationManager.update_conversation_model(
+                            conversation_id, requested_model_file, requested_model_file
+                        )
+
+                current_model_file = requested_model_file
+            except Exception as e:
+                logger.warning(f"Error handling model switch: {e}")
+                # Continue with current model
+                pass
+        else:
+            # Use current model
+            try:
+                current_model = ModelManager.get_current_model()
+                available_models = ModelManager.get_available_models()
+
+                # Try to determine current model file
+                for available_model in available_models:
+                    if current_model and current_model in available_model['name']:
+                        current_model_file = available_model['name']
+                        break
+            except Exception as e:
+                logger.warning(f"Error detecting current model: {e}")
+                pass
+
+        # Add user message
+        user_tokens = estimate_tokens(message)
+        ConversationManager.add_message(
+            conversation_id, 'user', message, model, current_model_file, None, user_tokens
+        )
+
+        # Get conversation history for context
+        messages = ConversationManager.get_messages(conversation_id)
+        history = [{'role': msg['role'], 'content': msg['content']}
+                   for msg in messages[:-1]]
+
+        # Generate response with metrics
+        response_data = LlamaCppAPI.generate_response(model, message, history)
+
+        # Add assistant response with metrics and model info
+        ConversationManager.add_message(
+            conversation_id,
+            'assistant',
+            response_data['response'],
+            model,
+            current_model_file,
+            response_data['response_time_ms'],
+            response_data['estimated_tokens']
+        )
+
+        return jsonify({
+            'response': response_data['response'],
+            'model': model,
+            'model_file': current_model_file,
+            'response_time_ms': response_data['response_time_ms'],
+            'estimated_tokens': response_data['estimated_tokens'],
+            'success': True,
+            'metrics': {
+                'completion_tokens': response_data.get('completion_tokens'),
+                'prompt_tokens': response_data.get('prompt_tokens'),
+                'total_tokens': response_data.get('total_tokens')
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error in chat endpoint: {e}")
+        return jsonify({
+            'error': f'Chat request failed: {str(e)}',
+            'success': False
+        }), 500
 
 
 @app.route('/api/search')
 def api_search():
     """Search conversations and messages."""
-    query = request.args.get('q', '').strip()
-    if not query:
-        return jsonify({'results': []})
+    try:
+        query = request.args.get('q', '').strip()
+        if not query:
+            return jsonify({
+                'results': [],
+                'success': True
+            })
 
-    db = get_db()
-    results = db.execute('''
-        SELECT DISTINCT c.id, c.title, c.model, c.updated_at,
-               m.content, m.role, m.timestamp, m.response_time_ms, m.estimated_tokens
-        FROM conversations c
-        JOIN messages m ON c.id = m.conversation_id
-        WHERE m.content LIKE ? OR c.title LIKE ?
-        ORDER BY c.updated_at DESC
-        LIMIT 50
-    ''', (f'%{query}%', f'%{query}%')).fetchall()
+        db = get_db()
+        results = db.execute('''
+            SELECT DISTINCT c.id, c.title, c.model, c.model_file, c.updated_at,
+                   m.content, m.role, m.timestamp, m.response_time_ms, m.estimated_tokens
+            FROM conversations c
+            JOIN messages m ON c.id = m.conversation_id
+            WHERE m.content LIKE ? OR c.title LIKE ?
+            ORDER BY c.updated_at DESC
+            LIMIT 50
+        ''', (f'%{query}%', f'%{query}%')).fetchall()
 
-    return jsonify({
-        'results': [dict(result) for result in results]
-    })
+        return jsonify({
+            'results': [dict(result) for result in results],
+            'success': True
+        })
+    except Exception as e:
+        logger.error(f"Error in search endpoint: {e}")
+        return jsonify({
+            'results': [],
+            'error': f'Search failed: {str(e)}',
+            'success': False
+        }), 500
 
 
 @app.route('/api/stats/<int:conversation_id>')
 def api_conversation_stats(conversation_id):
     """Get detailed statistics for a conversation."""
-    stats = ConversationManager.get_conversation_stats(conversation_id)
+    try:
+        stats = ConversationManager.get_conversation_stats(conversation_id)
 
-    # Get additional detailed stats
-    db = get_db()
-    detailed_stats = db.execute('''
-        SELECT
-            role,
-            COUNT(*) as count,
-            AVG(LENGTH(content)) as avg_length,
-            SUM(estimated_tokens) as total_tokens,
-            AVG(response_time_ms) as avg_response_time
-        FROM messages
-        WHERE conversation_id = ?
-        GROUP BY role
-    ''', (conversation_id,)).fetchall()
+        # Get additional detailed stats
+        db = get_db()
+        detailed_stats = db.execute('''
+            SELECT
+                role,
+                COUNT(*) as count,
+                AVG(LENGTH(content)) as avg_length,
+                SUM(estimated_tokens) as total_tokens,
+                AVG(response_time_ms) as avg_response_time
+            FROM messages
+            WHERE conversation_id = ?
+            GROUP BY role
+        ''', (conversation_id,)).fetchall()
 
-    return jsonify({
-        'summary': stats,
-        'by_role': [dict(stat) for stat in detailed_stats]
-    })
+        return jsonify({
+            'summary': stats,
+            'by_role': [dict(stat) for stat in detailed_stats],
+            'success': True
+        })
+    except Exception as e:
+        logger.error(
+            f"Error getting stats for conversation {conversation_id}: {e}")
+        return jsonify({
+            'summary': {},
+            'by_role': [],
+            'error': f'Failed to get statistics: {str(e)}',
+            'success': False
+        }), 500
 
 
 if __name__ == '__main__':
@@ -633,8 +1259,14 @@ if __name__ == '__main__':
     else:
         logger.warning("Could not connect to llama.cpp or no models available")
 
+    # Check available models in directory
+    available_models = ModelManager.get_available_models()
+    logger.info(
+        f"Found {len(available_models)} models in directory: {[m['name'] for m in available_models]}")
+
     # Log current configuration
     logger.info(f"llama.cpp timeout: {LLAMACPP_TIMEOUT}s")
+    logger.info(f"Model switch timeout: {MODEL_SWITCH_TIMEOUT}s")
     logger.info(
         f"Context history limit: {CONFIG['performance']['context_history_limit']} messages")
     logger.info(f"Temperature: {CONFIG['model_options']['temperature']}")

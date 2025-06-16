@@ -1,26 +1,58 @@
 {
   "timeouts": {
-    "llamacpp_timeout": 600,
-    "llamacpp_connect_timeout": 45
+    "llamacpp_timeout": 180,
+    "llamacpp_connect_timeout": 15,
+    "model_switch_timeout": 60
   },
   "model_options": {
-    "temperature": 0.1,
-    "top_p": 0.95,
-    "top_k": 50,
+    "temperature": 0.5,
+    "top_p": 0.8,
+    "top_k": 30,
     "min_p": 0.01,
-    "num_predict": 4096,
-    "repeat_penalty": 1.15,
+    "num_predict": 2048,
+    "num_ctx": 4096,
+    "repeat_penalty": 1.1,
     "stop": ["\n\nHuman:", "\n\nUser:"]
   },
   "performance": {
-    "context_history_limit": 15,
-    "num_thread": -1,
+    "context_history_limit": 10,
+    "batch_size": 512,
     "use_mlock": true,
-    "use_mmap": true
+    "use_mmap": true,
+    "num_thread": -1,
+    "num_gpu": 0
   },
-  "system_prompt": "You are Dost, a knowledgeable and thoughtful AI assistant. Take time to provide detailed, accurate, and well-reasoned responses. Consider multiple perspectives and provide comprehensive information when helpful.",
+  "system_prompt": "Your name is Bhaai, a helpful, friendly, and knowledgeable AI assistant. You have a warm personality and enjoy helping users solve problems. You're curious about technology and always try to provide practical, actionable advice. You occasionally use light humor when appropriate, but remain professional and focused on being genuinely helpful.",
   "response_optimization": {
     "stream": false,
-    "keep_alive": "10m"
+    "keep_alive": "5m",
+    "low_vram": false,
+    "f16_kv": true,
+    "logits_all": false,
+    "vocab_only": false,
+    "use_mmap": true,
+    "use_mlock": false,
+    "embedding_only": false,
+    "numa": false
+  },
+  "models": {
+    "directory": "./models",
+    "auto_detect": true,
+    "default_model": null,
+    "auto_switch": true,
+    "switch_confirmation": true,
+    "preserve_context": false
+  },
+  "ui": {
+    "show_model_info": true,
+    "show_performance_metrics": true,
+    "auto_scroll": true,
+    "notification_duration": 3000
+  },
+  "logging": {
+    "level": "INFO",
+    "file": "llamacpp_chat.log",
+    "max_size_mb": 50,
+    "backup_count": 3
   }
 }

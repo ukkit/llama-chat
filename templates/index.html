@@ -3,13 +3,210 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>llama-chat 🦙</title>
+    <title>llama-chat 🦙 - Enhanced</title>
 
     <!-- External CSS Libraries -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
 
     <!-- Local CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+
+    <!-- Enhanced styles for model switching -->
+    <style>
+        .model-info {
+            margin-top: 8px;
+            padding: 8px;
+            background: #0d1117;
+            border-radius: 4px;
+            border: 1px solid #30363d;
+        }
+
+        .model-info-label {
+            font-size: 10px;
+            color: #7d8590;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .current-model {
+            font-size: 11px;
+            color: #58a6ff;
+            font-weight: 500;
+        }
+
+        .server-status {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-left: 8px;
+        }
+
+        .server-status.online {
+            background: #238636;
+            box-shadow: 0 0 4px rgba(35, 134, 54, 0.5);
+        }
+
+        .server-status.offline {
+            background: #da3633;
+            box-shadow: 0 0 4px rgba(218, 54, 51, 0.5);
+        }
+
+        .model-select {
+            position: relative;
+        }
+
+        .model-select:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .model-switching-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(13, 17, 23, 0.8);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            font-family: inherit;
+        }
+
+        .model-switching-content {
+            background: #161b22;
+            padding: 24px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            text-align: center;
+            min-width: 300px;
+        }
+
+        .model-switching-spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid #30363d;
+            border-top: 3px solid #58a6ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .model-switching-text {
+            color: #e6edf3;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+
+        .model-switching-subtext {
+            color: #7d8590;
+            font-size: 12px;
+        }
+
+        .notification {
+            border: none;
+            transition: all 0.3s ease;
+        }
+
+        .search-result-meta {
+            font-size: 10px;
+            color: #7d8590;
+            margin-top: 2px;
+        }
+
+        .conversation-meta {
+            font-size: 11px;
+            color: #7d8590;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .model-badge {
+            background: rgba(88, 166, 255, 0.1);
+            color: #58a6ff;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 10px;
+            font-weight: 500;
+        }
+
+        .message-meta {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .model-indicator {
+            background: rgba(88, 166, 255, 0.1);
+            color: #58a6ff;
+            padding: 1px 4px;
+            border-radius: 2px;
+            font-size: 9px;
+            font-weight: 500;
+        }
+
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+        }
+
+        .chat-header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .chat-header-right {
+            position: relative;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #7d8590;
+        }
+
+        .app-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .error-state {
+            background: rgba(218, 54, 51, 0.1);
+            border: 1px solid rgba(218, 54, 51, 0.3);
+            border-radius: 6px;
+            padding: 12px;
+            margin: 12px;
+            color: #ffa198;
+        }
+
+        .error-state h4 {
+            margin: 0 0 8px 0;
+            color: #ff7b72;
+        }
+
+        .error-state p {
+            margin: 4px 0;
+            font-size: 13px;
+            line-height: 1.4;
+        }
+    </style>
 
     <!-- External JavaScript Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -18,11 +215,20 @@
 <body>
     <div class="sidebar">
         <div class="sidebar-header">
-            <div class="app-title">llama-chat 🦙</div>
+            <div class="app-title">
+                llama-chat 🦙
+                <div class="server-status" id="serverStatus" title="Server status"></div>
+            </div>
             <button class="new-chat-btn" onclick="createNewChat()">+ New Chat</button>
-            <select class="model-select" id="modelSelect">
+            
+            <select class="model-select" id="modelSelect" title="Select model">
                 <option value="">Loading models...</option>
             </select>
+            
+            <div class="model-info">
+                <div class="model-info-label">Current Model</div>
+                <div class="current-model" id="currentModelDisplay">Loading...</div>
+            </div>
         </div>
         <div class="conversations-list" id="conversationsList">
             <!-- Conversations will be loaded here -->
@@ -31,28 +237,151 @@
 
     <div class="main-content">
         <div class="chat-header">
-            <div class="chat-title" id="chatTitle">Select a conversation</div>
-            <div style="position: relative;">
-                <input type="text" class="search-box" id="searchBox" placeholder="Search conversations..." onkeyup="searchConversations(event)">
-                <div class="search-results" id="searchResults"></div>
+            <div class="chat-header-left">
+                <div class="chat-title" id="chatTitle">Select a conversation</div>
+            </div>
+            <div class="chat-header-right">
+                <div style="position: relative;">
+                    <input type="text" class="search-box" id="searchBox" 
+                           placeholder="Search conversations..." 
+                           onkeyup="searchConversations(event)">
+                    <div class="search-results" id="searchResults"></div>
+                </div>
             </div>
         </div>
 
         <div class="chat-container" id="chatContainer">
             <div class="no-conversation">
-                <h2>Welcome to llama-chat</h2>
+                <h2>Welcome to Enhanced llama-chat</h2>
+                <p>✨ Now with dynamic model switching!</p>
                 <p>Create a new chat to get started</p>
+                <div class="status-indicator">
+                    <span>Server:</span>
+                    <div class="server-status" id="serverStatusMain"></div>
+                    <span id="serverStatusText">Checking...</span>
+                </div>
             </div>
         </div>
 
         <div class="input-container" id="inputContainer" style="display: none;">
-            <textarea class="message-input" id="messageInput" placeholder="Type your message..." rows="1" onkeydown="handleKeyDown(event)" oninput="autoResize(this)"></textarea>
+            <textarea class="message-input" id="messageInput" 
+                      placeholder="Type your message..." 
+                      rows="1" 
+                      onkeydown="handleKeyDown(event)" 
+                      oninput="autoResize(this)"></textarea>
             <button class="send-btn" id="sendBtn" onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+
+    <!-- Model switching overlay -->
+    <div class="model-switching-overlay" id="modelSwitchingOverlay">
+        <div class="model-switching-content">
+            <div class="model-switching-spinner"></div>
+            <div class="model-switching-text" id="modelSwitchingText">Switching model...</div>
+            <div class="model-switching-subtext">This may take up to 60 seconds</div>
         </div>
     </div>
 
     <!-- Copy notification -->
     <div class="copy-notification" id="copyNotification">Copied to clipboard!</div>
+
+    <!-- Error state template (hidden by default) -->
+    <div class="error-state" id="errorTemplate" style="display: none;">
+        <h4>Connection Error</h4>
+        <p>Cannot connect to llama.cpp server.</p>
+        <p>Make sure the server is running on the configured port.</p>
+        <p>Check the console for detailed error information.</p>
+    </div>
+
+    <!-- Enhanced JavaScript -->
+    <script>
+        // Enhanced ModelManager with UI integration
+        class ModelManager {
+            static showModelSwitching(switching) {
+                const overlay = document.getElementById('modelSwitchingOverlay');
+                const modelSelect = document.getElementById('modelSelect');
+                const sendBtn = document.getElementById('sendBtn');
+                const messageInput = document.getElementById('messageInput');
+
+                if (switching) {
+                    overlay.style.display = 'flex';
+                    modelSelect.disabled = true;
+                    sendBtn.disabled = true;
+                    sendBtn.textContent = 'Model Switching...';
+                    messageInput.disabled = true;
+                    messageInput.placeholder = 'Switching model, please wait...';
+                    isModelSwitching = true;
+                } else {
+                    overlay.style.display = 'none';
+                    modelSelect.disabled = false;
+                    if (!isLoading) {
+                        sendBtn.disabled = false;
+                        sendBtn.textContent = 'Send';
+                        messageInput.disabled = false;
+                        messageInput.placeholder = 'Type your message...';
+                    }
+                    isModelSwitching = false;
+                }
+            }
+
+            static updateSwitchingText(text) {
+                const textElement = document.getElementById('modelSwitchingText');
+                if (textElement) {
+                    textElement.textContent = text;
+                }
+            }
+        }
+
+        // Enhanced server status checking
+        async function updateServerStatus() {
+            try {
+                const status = await fetch('/api/server/status').then(r => r.json());
+                
+                const indicators = document.querySelectorAll('.server-status');
+                const statusText = document.getElementById('serverStatusText');
+                
+                indicators.forEach(indicator => {
+                    if (status.server_running) {
+                        indicator.className = 'server-status online';
+                        indicator.title = `Server online - ${status.current_model || 'Unknown model'}`;
+                    } else {
+                        indicator.className = 'server-status offline';
+                        indicator.title = 'Server offline';
+                    }
+                });
+
+                if (statusText) {
+                    statusText.textContent = status.server_running ? 'Online' : 'Offline';
+                    statusText.style.color = status.server_running ? '#238636' : '#da3633';
+                }
+
+                return status.server_running;
+            } catch (error) {
+                console.error('Status check failed:', error);
+                
+                const indicators = document.querySelectorAll('.server-status');
+                const statusText = document.getElementById('serverStatusText');
+                
+                indicators.forEach(indicator => {
+                    indicator.className = 'server-status offline';
+                    indicator.title = 'Connection error';
+                });
+
+                if (statusText) {
+                    statusText.textContent = 'Error';
+                    statusText.style.color = '#da3633';
+                }
+                
+                return false;
+            }
+        }
+
+        // Start status monitoring immediately
+        document.addEventListener('DOMContentLoaded', function() {
+            updateServerStatus();
+            setInterval(updateServerStatus, 15000); // Check every 15 seconds
+        });
+    </script>
 
     <!-- Local JavaScript -->
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
