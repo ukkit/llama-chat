@@ -1,11 +1,11 @@
-# chat-o-llama 🦙 Features
+# llama-chat 🦙 Features
 
-A modern, feature-rich Flask web application for chatting with Ollama models with persistent conversation history, advanced markdown rendering, and professional code syntax highlighting.
+A comprehensive web interface for llama.cpp with persistent conversation history, advanced markdown rendering, and professional code syntax highlighting.
 
 ## 🎯 Core Features
 
 ### 💬 **Enhanced Chat Interface**
-- **Real-time messaging** with Ollama AI models
+- **Real-time messaging** with llama.cpp models
 - **Professional dark theme UI** with GitHub-inspired design using JetBrains Mono font
 - **Auto-resizing input** textarea that adapts to content length
 - **Keyboard shortcuts** - Enter to send, Shift+Enter for new line
@@ -73,12 +73,13 @@ A modern, feature-rich Flask web application for chatting with Ollama models wit
 - **Database metrics storage** for analytics and optimization
 - **Real-time performance display** under each assistant message
 
-### 🤖 **Model Integration**
-- **Dynamic model detection** from Ollama server
+### 🤖 **llama.cpp Integration**
+- **Dynamic model detection** from llama.cpp server
 - **Model selection dropdown** with auto-refresh
 - **Model-specific configuration** support
 - **Multi-model conversations** - switch models between messages
 - **Connection status monitoring** with error handling
+- **OpenAI-compatible API** integration for seamless communication
 
 ## 🎨 **Enhanced User Experience**
 
@@ -108,19 +109,21 @@ A modern, feature-rich Flask web application for chatting with Ollama models wit
 
 ## ⚙️ Advanced Configuration
 
-### 🔧 **Ollama Integration**
+### 🔧 **llama.cpp Integration**
 - **Customizable API endpoints** via environment variables
 - **Timeout configuration** for connection and response handling
 - **Advanced model parameters** for fine-tuning AI responses
 - **Custom system prompts** for personality customization
+- **GPU acceleration support** when available
+- **CUDA/Metal optimization** for supported hardware
 
 ### 🎛️ **Performance Optimization**
 - **Threading support** for concurrent request handling
 - **Context history limiting** to optimize memory usage
 - **Connection pooling** and keep-alive settings
-- **GPU acceleration support** when available
 - **Memory management** optimization options
 - **Configurable batch processing**
+- **Model caching** and warm-up strategies
 
 *For detailed configuration options, see [config.md](config.md)*
 
@@ -143,7 +146,7 @@ A modern, feature-rich Flask web application for chatting with Ollama models wit
 - **Environment variable configuration** for sensitive data
 
 ### 🛠️ **Error Handling**
-- **Graceful degradation** when Ollama is unavailable
+- **Graceful degradation** when llama.cpp is unavailable
 - **Connection timeout handling** with user feedback
 - **API error recovery** with informative error messages
 - **Database error handling** with transaction rollback
@@ -162,16 +165,19 @@ A modern, feature-rich Flask web application for chatting with Ollama models wit
 
 ### 📁 **File Structure**
 ```
-project/
-├── app.py                 # Flask backend
-├── config.json           # Configuration
+llama-chat/
+├── app.py                 # Flask backend with llama.cpp integration
+├── config.json           # llama.cpp and model configuration
+├── llama-chat.conf        # Service configuration
+├── chat-manager.sh        # Process management script
 ├── templates/
 │   └── index.html        # Main HTML template
-└── static/
-    ├── css/
-    │   └── styles.css    # Organized CSS styling
-    └── js/
-        └── app.js        # Modular JavaScript
+├── static/
+│   ├── css/
+│   │   └── styles.css    # Organized CSS styling
+│   └── js/
+│       └── app.js        # Modular JavaScript
+└── models/                # Directory for .gguf model files
 ```
 
 ### 🔧 **Modular Design**
@@ -209,9 +215,10 @@ project/
 
 ## 🚀 **Technical Specifications**
 
-### 💻 **Backend (Flask)**
-- **Python 3.7+** compatibility
+### 💻 **Backend (Flask + llama.cpp)**
+- **Python 3.8+** compatibility
 - **Flask framework** with threading support
+- **llama.cpp server integration** via HTTP API
 - **SQLite database** with WAL mode for performance
 - **RESTful API** design with JSON responses
 - **Modular architecture** with separation of concerns
@@ -233,10 +240,6 @@ project/
 - **Constraint enforcement** for data integrity
 - **Migration support** for schema updates
 - **Backup-friendly** design with SQLite
-
-## 🔧 **Configuration Options**
-
-*For detailed configuration settings, environment variables, and examples, see [config.md](config.md)*
 
 ## 🎯 **Use Cases**
 
@@ -273,83 +276,47 @@ project/
 
 ---
 
-## 🛠️ **Installation & Setup**
+## 🛠️ **Model Management**
 
-### Prerequisites
-- Python 3.7 or higher
-- Ollama server running locally or remotely
-- At least one Ollama model installed
-- Modern web browser with JavaScript enabled
+### Supported Model Formats
+- **GGUF format** - Primary format for llama.cpp
+- **Quantized models** - Q4_0, Q4_1, Q5_0, Q5_1, Q8_0
+- **Full precision** - F16, F32 (for high-end systems)
 
-### Quick Start
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd chat-o-llama
-   ```
+### Model Categories
+- **Ultra-fast**: qwen2.5:0.5b, tinyllama (testing and quick responses)
+- **Balanced**: phi3-mini, llama3.2:1b (daily use)
+- **High-quality**: llama3.1:8b, qwen2.5:7b (resource-intensive tasks)
+- **Specialized**: codellama, mistral-nemo (coding, domain-specific)
 
-2. **Install dependencies**
-   ```bash
-   pip install flask requests
-   ```
+### Performance Characteristics
 
-3. **Create directory structure**
-   ```bash
-   mkdir -p static/css static/js
-   ```
-
-4. **Set up files**
-   - Place `index.html` in `templates/` folder
-   - Place `styles.css` in `static/css/` folder  
-   - Place `app.js` in `static/js/` folder
-
-5. **Start Ollama server**
-   ```bash
-   ollama serve
-   ```
-
-6. **Run the application**
-   ```bash
-   python app.py
-   ```
-
-7. **Open browser**
-   Navigate to `http://localhost:8080`
-
-### Configuration
-1. **Create configuration files** - see [config.md](config.md) for detailed setup
-2. **Set environment variables** as needed
-3. **Modify database path** if required
-4. **Configure Ollama models** and parameters
-5. **Customize system prompts** and response settings
-
-### Troubleshooting
-- **Models not loading**: Ensure Ollama is running and models are installed
-- **Markdown not rendering**: Check browser JavaScript console for errors
-- **Copy functionality not working**: Ensure HTTPS or localhost for Clipboard API
-- **Syntax highlighting missing**: Verify highlight.js CDN is accessible
+| Model Size | RAM Usage | CPU Speed | GPU Speed | Quality |
+|------------|-----------|-----------|-----------|---------|
+| 0.5B params | ~1GB | 15-30 tok/s | 50-100 tok/s | Good |
+| 1B params | ~2GB | 10-20 tok/s | 40-80 tok/s | Very Good |
+| 3B params | ~4GB | 5-15 tok/s | 30-60 tok/s | Excellent |
+| 7B params | ~8GB | 2-8 tok/s | 20-40 tok/s | Superior |
 
 ---
 
 ## 🆕 **Recent Updates**
 
-### **v2.0 - Enhanced Markdown & Code Support**
-- ✅ **Full markdown rendering** with GitHub-flavored syntax
-- ✅ **Syntax highlighting** for 190+ programming languages
-- ✅ **Individual code block copy** buttons
-- ✅ **Professional code presentation** with language headers
-- ✅ **Enhanced copy functionality** with smart text extraction
-- ✅ **Modular file structure** for better maintainability
-- ✅ **Improved error handling** and user feedback
-- ✅ **Mobile-optimized** code viewing and copying
+### **v2.0 - llama.cpp Native Integration**
+- ✅ **Direct llama.cpp server integration** replacing Ollama dependency
+- ✅ **OpenAI-compatible API** for seamless model communication
+- ✅ **Enhanced performance metrics** with token/second tracking
+- ✅ **Improved model management** with automatic .gguf detection
+- ✅ **Better resource optimization** for CPU and GPU usage
+- ✅ **Simplified installation** with integrated dependency management
 
 ### **Key Improvements**
-- **Better developer experience** with proper code formatting
-- **Enhanced readability** with professional typography
-- **Improved accessibility** with better contrast and structure
-- **Maintainable codebase** with separated concerns
+- **Better performance** with native llama.cpp integration
+- **Lower resource usage** optimized for local deployment
+- **Enhanced stability** with dedicated server process
+- **Improved error handling** and recovery mechanisms
 - **Modern web standards** with progressive enhancement
 
 ---
 
-*chat-o-llama now combines powerful AI conversation capabilities with professional markdown rendering and code syntax highlighting, making it the ideal tool for technical discussions, coding assistance, and formatted content creation.*
+*llama-chat now provides the most comprehensive local AI chat experience with llama.cpp, combining powerful conversation capabilities with professional markdown rendering and code syntax highlighting, perfect for technical discussions, coding assistance, and formatted content creation.*

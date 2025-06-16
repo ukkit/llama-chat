@@ -27,8 +27,8 @@ NC='\033[0m' # No Color
 # Configuration with environment variable overrides
 REPO_URL="https://github.com/ukkit/llama-chat.git"
 INSTALL_DIR="${CHAT_OLLAMA_INSTALL_DIR:-$HOME/llama-chat}"
-DEFAULT_PORT="${CHAT_OLLAMA_PORT:-3000}"
-LLAMACPP_PORT="${LLAMACPP_PORT:-8080}"
+DEFAULT_PORT="${CHAT_OLLAMA_PORT:-3333}"
+LLAMACPP_PORT="${LLAMACPP_PORT:-8120}"
 
 # Model configuration
 RECOMMENDED_MODEL="${CHAT_OLLAMA_MODEL:-qwen2.5-0.5b-instruct-q4_0.gguf}"
@@ -539,7 +539,7 @@ FLASK_HOST="127.0.0.1"
 FLASK_PORT="$DEFAULT_PORT"
 FLASK_DEBUG="false"
 
-# llama.cpp server settings  
+# llama.cpp server settings
 LLAMACPP_HOST="127.0.0.1"
 LLAMACPP_PORT="$LLAMACPP_PORT"
 MODELS_DIR="$INSTALL_DIR/models"

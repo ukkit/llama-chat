@@ -1,15 +1,16 @@
-# chat-o-llama 🦙 Configuration Guide
+# llama-chat 🦙 Configuration Guide
 
-Complete configuration reference for customizing your chat-o-llama installation.
+Complete configuration reference for customizing your llama-chat installation with llama.cpp.
 
 ## 📋 **Quick Reference**
 
 | Configuration Type | File/Method | Purpose |
 |-------------------|------------|---------|
 | **Runtime Settings** | `config.json` | Model parameters, timeouts, performance |
-| **Environment** | Environment Variables | Server URLs, paths, debugging |
+| **Service Configuration** | `llama-chat.conf` | Server ports, paths, GPU settings |
+| **Environment** | Environment Variables | Runtime overrides and debugging |
 | **Database** | `DATABASE_PATH` | SQLite database location |
-| **Ollama** | `OLLAMA_API_URL` | Ollama server connection |
+| **llama.cpp** | Command line args | Server-specific configuration |
 
 ---
 
@@ -22,40 +23,115 @@ Create a `config.json` file in your project root to customize application behavi
 ```json
 {
   "timeouts": {
-    "ollama_timeout": 180,
-    "ollama_connect_timeout": 15
+    "llamacpp_timeout": 600,
+    "llamacpp_connect_timeout": 45
   },
   "model_options": {
-    "temperature": 0.5,
-    "top_p": 0.8,
-    "top_k": 30,
-    "num_predict": 2048,
-    "num_ctx": 4096,
-    "repeat_penalty": 1.1,
+    "temperature": 0.1,
+    "top_p": 0.95,
+    "top_k": 50,
+    "min_p": 0.01,
+    "num_predict": 4096,
+    "repeat_penalty": 1.15,
     "stop": ["\n\nHuman:", "\n\nUser:"]
   },
   "performance": {
-    "context_history_limit": 10,
-    "batch_size": 1,
-    "use_mlock": true,
-    "use_mmap": true,
+    "context_history_limit": 15,
     "num_thread": -1,
-    "num_gpu": 0
+    "use_mlock": true,
+    "use_mmap": true
   },
-  "system_prompt": "Your name is Bhaai, a helpful, friendly, and knowledgeable AI assistant. You have a warm personality and enjoy helping users solve problems. You're curious about technology and always try to provide practical, actionable advice. You occasionally use light humor when appropriate, but remain professional and focused on being genuinely helpful.",
+  "system_prompt": "You are Dost, a knowledgeable and thoughtful AI assistant. Take time to provide detailed, accurate, and well-reasoned responses. Consider multiple perspectives and provide comprehensive information when helpful.",
   "response_optimization": {
     "stream": false,
-    "keep_alive": "5m",
-    "low_vram": false,
-    "f16_kv": true,
-    "logits_all": false,
-    "vocab_only": false,
-    "use_mmap": true,
-    "use_mlock": false,
-    "embedding_only": false,
-    "numa": false
+    "keep_alive": "10m"
   }
 }
+```
+
+---
+
+## 🏭 **Service Configuration (llama-chat.conf)**
+
+The main configuration file for service management and hardware optimization.
+
+### **Complete Service Configuration**
+
+```bash
+# llama-chat Configuration File
+# This file contains configuration options for llama-chat and llama.cpp server
+
+# ============================================================================
+# INSTALLATION SETTINGS
+# ============================================================================
+
+# Installation directory
+INSTALL_DIR=$HOME/llama-chat
+
+# ============================================================================
+# FLASK APPLICATION SETTINGS
+# ============================================================================
+
+# Flask web server configuration
+FLASK_HOST=127.0.0.1
+FLASK_PORT=3000
+FLASK_DEBUG=false
+
+# ============================================================================
+# LLAMA.CPP SERVER SETTINGS
+# ============================================================================
+
+# Basic server configuration
+LLAMACPP_HOST=127.0.0.1
+LLAMACPP_PORT=8080
+MODELS_DIR=$INSTALL_DIR/models
+
+# Model settings
+DEFAULT_MODEL=
+CONTEXT_SIZE=4096
+GPU_LAYERS=0
+THREADS=4
+BATCH_SIZE=512
+
+# ============================================================================
+# ADVANCED LLAMA.CPP SERVER OPTIONS
+# ============================================================================
+
+# Processing and Performance
+# LLAMA_ARG_N_PARALLEL=1
+# LLAMA_ARG_CONT_BATCHING=false
+# LLAMA_ARG_N_THREADS_BATCH=4
+# LLAMA_ARG_N_UBATCH=512
+# LLAMA_ARG_N_KEEP=-1
+
+# Memory Management
+# LLAMA_ARG_MLOCK=false
+# LLAMA_ARG_NO_MMAP=false
+# LLAMA_ARG_NUMA=false
+
+# Model Loading
+# LLAMA_ARG_N_CTX=4096
+# LLAMA_ARG_N_BATCH=512
+# LLAMA_ARG_N_GPU_LAYERS=0
+# LLAMA_ARG_MAIN_GPU=0
+# LLAMA_ARG_TENSOR_SPLIT=
+
+# Security Settings
+# LLAMA_ARG_API_KEY=
+# LLAMA_ARG_API_KEY_FILE=
+
+# ============================================================================
+# LOGGING CONFIGURATION
+# ============================================================================
+
+# Log file locations
+LOG_DIR=$INSTALL_DIR/logs
+LLAMACPP_LOG_FILE=$LOG_DIR/llamacpp.log
+FLASK_LOG_FILE=$LOG_DIR/flask.log
+
+# Log rotation
+LOG_MAX_SIZE=100M
+LOG_ROTATE_COUNT=5
 ```
 
 ---
@@ -69,22 +145,22 @@ Controls connection and response timing behavior.
 ```json
 {
   "timeouts": {
-    "ollama_timeout": 180,
-    "ollama_connect_timeout": 15
+    "llamacpp_timeout": 600,
+    "llamacpp_connect_timeout": 45
   }
 }
 ```
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `ollama_timeout` | `180` | Maximum seconds to wait for AI response |
-| `ollama_connect_timeout` | `15` | Maximum seconds to wait for connection |
+| `llamacpp_timeout` | `600` | Maximum seconds to wait for AI response |
+| `llamacpp_connect_timeout` | `45` | Maximum seconds to wait for connection |
 
 ### **Recommendations**
 
-- **Fast responses**: Set `ollama_timeout` to `60-120` seconds
-- **Complex queries**: Use `180-300` seconds
-- **Slow networks**: Increase `ollama_connect_timeout` to `30`
+- **Fast responses**: Set `llamacpp_timeout` to `120-300` seconds
+- **Complex queries**: Use `600-1200` seconds
+- **Slow networks**: Increase `llamacpp_connect_timeout` to `60`
 - **Local setup**: Keep defaults or reduce timeouts
 
 ---
@@ -98,12 +174,12 @@ Fine-tune AI model behavior and response characteristics.
 ```json
 {
   "model_options": {
-    "temperature": 0.5,
-    "top_p": 0.8,
-    "top_k": 30,
-    "num_predict": 2048,
-    "num_ctx": 4096,
-    "repeat_penalty": 1.1,
+    "temperature": 0.1,
+    "top_p": 0.95,
+    "top_k": 50,
+    "min_p": 0.01,
+    "num_predict": 4096,
+    "repeat_penalty": 1.15,
     "stop": ["\n\nHuman:", "\n\nUser:"]
   }
 }
@@ -113,12 +189,12 @@ Fine-tune AI model behavior and response characteristics.
 
 | Parameter | Range | Default | Description |
 |-----------|-------|---------|-------------|
-| `temperature` | 0.0-2.0 | `0.5` | Response creativity (0=deterministic, 2=very creative) |
-| `top_p` | 0.0-1.0 | `0.8` | Nucleus sampling threshold |
-| `top_k` | 1-100 | `30` | Consider top K probable next tokens |
-| `num_predict` | 1-8192 | `2048` | Maximum tokens to generate |
-| `num_ctx` | 512-32768 | `4096` | Context window size |
-| `repeat_penalty` | 0.5-2.0 | `1.1` | Penalty for repeating tokens |
+| `temperature` | 0.0-2.0 | `0.1` | Response creativity (0=deterministic, 2=very creative) |
+| `top_p` | 0.0-1.0 | `0.95` | Nucleus sampling threshold |
+| `top_k` | 1-100 | `50` | Consider top K probable next tokens |
+| `min_p` | 0.0-1.0 | `0.01` | Minimum probability threshold |
+| `num_predict` | 1-8192 | `4096` | Maximum tokens to generate |
+| `repeat_penalty` | 0.5-2.0 | `1.15` | Penalty for repeating tokens |
 | `stop` | Array | `["\n\nHuman:", "\n\nUser:"]` | Stop generation sequences |
 
 ### **Use Case Presets**
@@ -135,7 +211,7 @@ Fine-tune AI model behavior and response characteristics.
 #### **Code Generation**
 ```json
 {
-  "temperature": 0.2,
+  "temperature": 0.1,
   "top_p": 0.7,
   "top_k": 20
 }
@@ -144,7 +220,7 @@ Fine-tune AI model behavior and response characteristics.
 #### **Analytical Tasks**
 ```json
 {
-  "temperature": 0.3,
+  "temperature": 0.2,
   "top_p": 0.8,
   "top_k": 25
 }
@@ -153,9 +229,9 @@ Fine-tune AI model behavior and response characteristics.
 #### **Conversational Chat**
 ```json
 {
-  "temperature": 0.5,
-  "top_p": 0.8,
-  "top_k": 30
+  "temperature": 0.3,
+  "top_p": 0.85,
+  "top_k": 40
 }
 ```
 
@@ -163,63 +239,107 @@ Fine-tune AI model behavior and response characteristics.
 
 ## ⚡ **Performance Configuration**
 
-Optimize memory usage and processing speed.
+Optimize memory usage and processing speed for llama.cpp.
 
 ### **Settings**
 
 ```json
 {
   "performance": {
-    "context_history_limit": 10,
-    "batch_size": 1,
-    "use_mlock": true,
-    "use_mmap": true,
+    "context_history_limit": 15,
     "num_thread": -1,
-    "num_gpu": 0
+    "use_mlock": true,
+    "use_mmap": true
   }
 }
+```
+
+### **Service Configuration (llama-chat.conf)**
+
+```bash
+# Model settings
+CONTEXT_SIZE=4096       # Context window size
+GPU_LAYERS=0            # Number of layers to offload to GPU
+THREADS=4               # CPU threads to use
+BATCH_SIZE=512          # Batch size for processing
+
+# Advanced llama.cpp settings
+LLAMA_ARG_N_PARALLEL=1           # Parallel processing slots
+LLAMA_ARG_CONT_BATCHING=false    # Continuous batching
+LLAMA_ARG_MLOCK=false            # Lock model in memory
+LLAMA_ARG_NUMA=false             # NUMA optimization
 ```
 
 ### **Parameter Details**
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `context_history_limit` | `10` | Number of previous messages to include |
-| `batch_size` | `1` | Batch processing size |
-| `use_mlock` | `true` | Lock memory pages (prevents swapping) |
-| `use_mmap` | `true` | Use memory mapping for efficiency |
-| `num_thread` | `-1` | CPU threads (-1 = auto-detect) |
-| `num_gpu` | `0` | GPU layers to offload (0 = CPU only) |
+| `context_history_limit` | `15` | Number of previous messages to include |
+| `CONTEXT_SIZE` | `4096` | Context window size for model |
+| `GPU_LAYERS` | `0` | GPU layers to offload (0 = CPU only) |
+| `THREADS` | `4` | CPU threads (-1 = auto-detect) |
+| `BATCH_SIZE` | `512` | Batch processing size |
 
-### **Memory Optimization**
+### **Hardware Optimization**
+
+#### **CPU-Only Systems**
+```bash
+# llama-chat.conf
+GPU_LAYERS=0
+THREADS=-1  # Use all CPU cores
+LLAMA_ARG_MLOCK=false
+LLAMA_ARG_NO_MMAP=false
+```
+
+#### **GPU Acceleration (NVIDIA)**
+```bash
+# llama-chat.conf
+GPU_LAYERS=32           # Or -1 for all layers
+THREADS=8               # Fewer CPU threads when using GPU
+LLAMA_ARG_MAIN_GPU=0    # Primary GPU ID
+LLAMA_ARG_N_GPU_LAYERS=32
+```
+
+#### **Apple Silicon (Metal)**
+```bash
+# llama-chat.conf
+GPU_LAYERS=-1           # Use all GPU layers
+THREADS=8
+# Metal is automatically enabled during compilation
+```
 
 #### **Low Memory Systems (<8GB RAM)**
 ```json
 {
-  "context_history_limit": 5,
-  "use_mlock": false,
-  "use_mmap": true,
-  "num_thread": 2
+  "performance": {
+    "context_history_limit": 5,
+    "use_mlock": false
+  }
 }
+```
+
+```bash
+# llama-chat.conf
+CONTEXT_SIZE=2048
+BATCH_SIZE=256
+LLAMA_ARG_N_CTX=2048
 ```
 
 #### **High Memory Systems (>16GB RAM)**
 ```json
 {
-  "context_history_limit": 20,
-  "use_mlock": true,
-  "use_mmap": true,
-  "num_thread": -1
+  "performance": {
+    "context_history_limit": 25,
+    "use_mlock": true
+  }
 }
 ```
 
-#### **GPU Acceleration**
-```json
-{
-  "num_gpu": 32,
-  "use_mlock": true,
-  "num_thread": 8
-}
+```bash
+# llama-chat.conf
+CONTEXT_SIZE=8192
+BATCH_SIZE=1024
+LLAMA_ARG_N_CTX=8192
 ```
 
 ---
@@ -231,7 +351,7 @@ Define your AI assistant's personality and behavior.
 ### **Default System Prompt**
 ```json
 {
-  "system_prompt": "Your name is Bhaai, a helpful, friendly, and knowledgeable AI assistant. You have a warm personality and enjoy helping users solve problems. You're curious about technology and always try to provide practical, actionable advice. You occasionally use light humor when appropriate, but remain professional and focused on being genuinely helpful."
+  "system_prompt": "You are Dost, a knowledgeable and thoughtful AI assistant. Take time to provide detailed, accurate, and well-reasoned responses. Consider multiple perspectives and provide comprehensive information when helpful."
 }
 ```
 
@@ -260,46 +380,6 @@ Define your AI assistant's personality and behavior.
 
 ---
 
-## 🔄 **Response Optimization**
-
-Control how responses are generated and delivered.
-
-### **Settings**
-
-```json
-{
-  "response_optimization": {
-    "stream": false,
-    "keep_alive": "5m",
-    "low_vram": false,
-    "f16_kv": true,
-    "logits_all": false,
-    "vocab_only": false,
-    "use_mmap": true,
-    "use_mlock": false,
-    "embedding_only": false,
-    "numa": false
-  }
-}
-```
-
-### **Parameter Details**
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `stream` | `false` | Stream response tokens (not implemented in UI) |
-| `keep_alive` | `"5m"` | Keep model loaded in memory |
-| `low_vram` | `false` | Optimize for low VRAM systems |
-| `f16_kv` | `true` | Use 16-bit key-value cache |
-| `logits_all` | `false` | Return logits for all tokens |
-| `vocab_only` | `false` | Only load vocabulary |
-| `use_mmap` | `true` | Use memory mapping |
-| `use_mlock` | `false` | Lock model memory |
-| `embedding_only` | `false` | Only generate embeddings |
-| `numa` | `false` | NUMA optimization |
-
----
-
 ## 🌍 **Environment Variables**
 
 Configure application runtime through environment variables.
@@ -307,293 +387,34 @@ Configure application runtime through environment variables.
 ### **Core Variables**
 
 ```bash
-# Ollama Configuration
-OLLAMA_API_URL=http://localhost:11434
+# llama.cpp Configuration
+LLAMACPP_HOST=127.0.0.1
+LLAMACPP_PORT=8080
 
-# Database Configuration  
-DATABASE_PATH=ollama_chat.db
-
-# Flask Configuration
-PORT=8080
+# Flask Configuration  
+FLASK_HOST=127.0.0.1
+FLASK_PORT=3000
 DEBUG=false
-SECRET_KEY=your-secret-key-change-this
+
+# Paths
+MODELS_DIR=./models
+DATABASE_PATH=./data/llama-chat.db
+LOG_DIR=./logs
+
+# Performance
+GPU_LAYERS=0
+THREADS=4
+CONTEXT_SIZE=4096
 ```
 
 ### **Advanced Variables**
 
 ```bash
-# Threading Configuration
-FLASK_THREADED=true
-
-# Security
-FLASK_SECRET_KEY=your-production-secret-key
-
-# Logging
-LOG_LEVEL=INFO
-LOG_FILE=chat-o-llama.log
-
-# Development
-FLASK_ENV=production
-FLASK_DEBUG=false
-```
-
-### **Environment Setup Methods**
-
-#### **Option 1: .env File**
-Create a `.env` file in your project root:
-```bash
-OLLAMA_API_URL=http://localhost:11434
-DATABASE_PATH=./data/ollama_chat.db
-PORT=8080
-DEBUG=false
-```
-
-#### **Option 2: System Environment**
-```bash
-export OLLAMA_API_URL=http://localhost:11434
-export DATABASE_PATH=/path/to/database.db
-export PORT=8080
-```
-
-#### **Option 3: Docker Environment**
-```dockerfile
-ENV OLLAMA_API_URL=http://ollama:11434
-ENV DATABASE_PATH=/app/data/chat.db
-ENV PORT=8080
-```
-
----
-
-## 🗄️ **Database Configuration**
-
-Configure SQLite database settings and location.
-
-### **Database Path Options**
-
-```bash
-# Relative path (default)
-DATABASE_PATH=ollama_chat.db
-
-# Absolute path
-DATABASE_PATH=/var/lib/chat-o-llama/database.db
-
-# Memory database (testing only)
-DATABASE_PATH=:memory:
-```
-
-### **Database Optimization**
-
-#### **Production Settings**
-```python
-# SQLite optimization settings (in app.py)
-PRAGMA journal_mode=WAL;
-PRAGMA synchronous=NORMAL;
-PRAGMA cache_size=10000;
-PRAGMA temp_store=memory;
-```
-
-#### **Development Settings**
-```python
-PRAGMA journal_mode=DELETE;
-PRAGMA synchronous=FULL;
-```
-
----
-
-## 🚀 **Deployment Configurations**
-
-### **Development Setup**
-```json
-{
-  "timeouts": {
-    "ollama_timeout": 60,
-    "ollama_connect_timeout": 10
-  },
-  "performance": {
-    "context_history_limit": 5,
-    "use_mlock": false
-  },
-  "model_options": {
-    "temperature": 0.7,
-    "num_predict": 1024
-  }
-}
-```
-
-### **Production Setup**
-```json
-{
-  "timeouts": {
-    "ollama_timeout": 180,
-    "ollama_connect_timeout": 15
-  },
-  "performance": {
-    "context_history_limit": 15,
-    "use_mlock": true,
-    "use_mmap": true
-  },
-  "model_options": {
-    "temperature": 0.5,
-    "num_predict": 2048,
-    "num_ctx": 4096
-  }
-}
-```
-
-### **High-Performance Setup**
-```json
-{
-  "timeouts": {
-    "ollama_timeout": 300,
-    "ollama_connect_timeout": 20
-  },
-  "performance": {
-    "context_history_limit": 25,
-    "use_mlock": true,
-    "use_mmap": true,
-    "num_thread": -1,
-    "num_gpu": 32
-  },
-  "model_options": {
-    "temperature": 0.5,
-    "num_predict": 4096,
-    "num_ctx": 8192
-  }
-}
-```
-
----
-
-## 🛠️ **Configuration Validation**
-
-### **Testing Your Configuration**
-
-```bash
-# Test Ollama connection
-curl http://localhost:11434/api/tags
-
-# Test Flask app
-python -c "from app import init_db; init_db()"
-
-# Validate config.json
-python -c "import json; print(json.load(open('config.json')))"
-```
-
-### **Common Configuration Issues**
-
-| Issue | Symptom | Solution |
-|-------|---------|----------|
-| **Model not loading** | "No models available" | Check `OLLAMA_API_URL` and Ollama status |
-| **Slow responses** | Timeouts or delays | Increase `ollama_timeout`, reduce `num_predict` |
-| **Memory issues** | System slowdown | Reduce `context_history_limit`, disable `use_mlock` |
-| **JSON errors** | Config not loading | Validate JSON syntax in `config.json` |
-| **Database errors** | Conversation not saving | Check `DATABASE_PATH` permissions |
-
-### **Performance Tuning**
-
-#### **CPU-Optimized**
-```json
-{
-  "performance": {
-    "num_thread": -1,
-    "num_gpu": 0,
-    "use_mmap": true,
-    "use_mlock": false
-  }
-}
-```
-
-#### **GPU-Optimized**
-```json
-{
-  "performance": {
-    "num_gpu": 32,
-    "num_thread": 4,
-    "use_mlock": true
-  }
-}
-```
-
-#### **Memory-Constrained**
-```json
-{
-  "performance": {
-    "context_history_limit": 3,
-    "use_mlock": false,
-    "low_vram": true
-  },
-  "model_options": {
-    "num_ctx": 2048,
-    "num_predict": 1024
-  }
-}
-```
-
----
-
-## 📝 **Configuration Templates**
-
-### **Minimal Configuration**
-```json
-{
-  "model_options": {
-    "temperature": 0.5
-  }
-}
-```
-
-### **Balanced Configuration**
-```json
-{
-  "timeouts": {
-    "ollama_timeout": 120
-  },
-  "model_options": {
-    "temperature": 0.5,
-    "num_predict": 2048
-  },
-  "performance": {
-    "context_history_limit": 10
-  }
-}
-```
-
-### **Maximum Configuration**
-```json
-{
-  "timeouts": {
-    "ollama_timeout": 300,
-    "ollama_connect_timeout": 20
-  },
-  "model_options": {
-    "temperature": 0.5,
-    "top_p": 0.8,
-    "top_k": 30,
-    "num_predict": 4096,
-    "num_ctx": 8192,
-    "repeat_penalty": 1.1,
-    "stop": ["\n\nHuman:", "\n\nUser:", "\n\nAssistant:"]
-  },
-  "performance": {
-    "context_history_limit": 20,
-    "batch_size": 1,
-    "use_mlock": true,
-    "use_mmap": true,
-    "num_thread": -1,
-    "num_gpu": 32
-  },
-  "system_prompt": "You are an expert AI assistant with deep knowledge across multiple domains. Provide detailed, accurate, and helpful responses.",
-  "response_optimization": {
-    "stream": false,
-    "keep_alive": "10m",
-    "low_vram": false,
-    "f16_kv": true,
-    "use_mmap": true,
-    "use_mlock": true
-  }
-}
-```
-
----
-
-*For more information about Ollama model parameters, visit the [Ollama documentation](https://github.com/ollama/ollama/blob/main/docs/modelfile.md#parameter).*
+# llama.cpp Server Arguments (prefix with LLAMA_ARG_)
+LLAMA_ARG_N_GPU_LAYERS=32
+LLAMA_ARG_N_PARALLEL=1
+LLAMA_ARG_CONT_BATCHING=false
+LLAMA_ARG_MLOCK=false
+LLAMA_ARG_NUMA=false
+LLAMA_ARG_N_CTX=4096
+LLAMA_ARG_N_BATCH=512

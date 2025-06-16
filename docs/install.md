@@ -1,12 +1,13 @@
 # 📦 Complete Installation Guide
 
-This guide provides both automatic and manual installation methods for chat-o-llama.
+This guide provides both automatic and manual installation methods for llama-chat with llama.cpp.
 
 ## ⚡ Prerequisites for Fastest Setup
 
 **For quickest installation (< 2 minutes), have these ready:**
 - **Python 3.8+** with pip and venv modules
-- **Ollama** running with at least one model downloaded
+- **llama.cpp** with llama-server binary
+- **At least one .gguf model** downloaded
 - **git** (usually pre-installed on most systems)
 
 **Quick prerequisite check:**
@@ -14,8 +15,7 @@ This guide provides both automatic and manual installation methods for chat-o-ll
 python3 --version          # Should show 3.8 or higher
 python3 -m pip --version   # Should work without errors
 python3 -m venv --help     # Should show venv help
-ollama --version           # Should show Ollama version
-ollama list                # Should show at least one model
+llama-server --help        # Should show llama-server options
 git --version              # Should show git version
 ```
 
@@ -30,19 +30,19 @@ git --version              # Should show git version
 
 ### One-Command Installation
 
-**The easiest way to install chat-o-llama:**
+**The easiest way to install llama-chat:**
 
 ```bash
-curl -fsSL https://github.com/ukkit/chat-o-llama/raw/main/install.sh | bash
+curl -fsSL https://github.com/ukkit/llama-chat/raw/main/install.sh | bash
 ```
 
 **Alternative methods:**
 ```bash
 # Using wget
-wget -O- https://github.com/ukkit/chat-o-llama/raw/main/install.sh | sh
+wget -O- https://github.com/ukkit/llama-chat/raw/main/install.sh | sh
 
 # Download and inspect first (recommended for security)
-curl -O https://github.com/ukkit/chat-o-llama/raw/main/install.sh
+curl -O https://github.com/ukkit/llama-chat/raw/main/install.sh
 cat install.sh  # Review the script
 chmod +x install.sh
 ./install.sh
@@ -52,24 +52,25 @@ chmod +x install.sh
 
 **✅ Smart Detection & Installation:**
 - **Checks for Python 3.8+** - Installs if missing or too old
-- **Checks for Ollama** - Downloads and installs if not found
+- **Checks for llama.cpp** - Downloads and compiles if not found
 - **Checks for git** - Installs if missing
 - **Validates all tools** - Ensures everything works before proceeding
 
 **✅ Efficient Setup:**
-- **Downloads chat-o-llama** from GitHub (lightweight)
+- **Downloads llama-chat** from GitHub (lightweight)
 - **Creates virtual environment** (isolated Python environment)
 - **Installs dependencies** (Flask, requests - minimal requirements)
 - **Sets up permissions** (makes scripts executable)
 
 **✅ Model Management:**
 - **Checks existing models** - Uses what you already have
-- **Recommends qwen2.5:0.5b** (~380MB, fastest)
+- **Recommends qwen2.5-0.5b-instruct** (~400MB, fastest)
 - **Provides alternatives** if download fails
 - **Skips download** if you prefer to install models later
 
 **✅ Service Launch:**
-- **Starts automatically** on available port (default: 3000)
+- **Starts llama.cpp server** on available port (default: 8080)
+- **Starts Flask web interface** on available port (default: 3000)
 - **Provides access URL** and management commands
 - **Shows next steps** and usage instructions
 
@@ -77,20 +78,20 @@ chmod +x install.sh
 
 **With Prerequisites Present:**
 ```
-Downloading chat-o-llama     : 10-30 seconds
+Downloading llama-chat       : 10-30 seconds
 Setting up environment       : 30-60 seconds
 Installing Python packages   : 30-60 seconds
-Starting application         : 5-10 seconds
+Starting applications        : 5-10 seconds
 Total                        : ~2 minutes
 ```
 
 **Installing Prerequisites:**
 ```
 Installing Python (if needed): 2-5 minutes
-Installing Ollama (if needed): 1-3 minutes
+Installing llama.cpp (if needed): 3-8 minutes (compilation)
 Downloading model (if needed) : 2-10 minutes (depends on model size)
-Setting up chat-o-llama      : 2 minutes
-Total                        : 5-20 minutes
+Setting up llama-chat        : 2 minutes
+Total                        : 7-25 minutes
 ```
 
 ### Expected Output
@@ -98,18 +99,18 @@ Total                        : 5-20 minutes
 **With Prerequisites:**
 ```
 ╔══════════════════════════════════════╗
-║           chat-o-llama 🦙            ║
-║        Auto Installer Script        ║
+║      llama-chat 🦙 (llama.cpp)       ║
+║      Non-Interactive Installer       ║
 ╚══════════════════════════════════════╝
 
 ✓ Python 3.11.2 found at /usr/bin/python3
-✓ Ollama found at /usr/local/bin/ollama
-✓ Ollama service is running
-✓ Found existing models: qwen2.5:0.5b
-✓ chat-o-llama downloaded successfully
+✓ llama-server found at /usr/local/bin/llama-server
+✓ Found existing models: qwen2.5-0.5b-instruct-q4_0.gguf
+✓ llama-chat downloaded successfully
 ✓ Virtual environment created
 ✓ Dependencies installed successfully
-✓ chat-o-llama started successfully!
+✓ llama.cpp server started on port 8080
+✓ llama-chat started successfully!
 
 🎉 Installation Complete! 🎉
 Access at: http://localhost:3000
@@ -118,20 +119,21 @@ Access at: http://localhost:3000
 **Without Prerequisites:**
 ```
 ╔══════════════════════════════════════╗
-║           chat-o-llama 🦙            ║
-║        Auto Installer Script        ║
+║      llama-chat 🦙 (llama.cpp)       ║
+║      Non-Interactive Installer       ║
 ╚══════════════════════════════════════╝
 
 ⚠ Python 3.8+ not found, installing...
 ✓ Python 3.11.2 installed successfully
-⚠ Ollama not found, installing...
-✓ Ollama installed successfully
-⚠ No models found, downloading qwen2.5:0.5b...
-✓ Model downloaded successfully (~380MB)
-✓ chat-o-llama downloaded successfully
+⚠ llama.cpp not found, compiling from source...
+✓ llama.cpp compiled and installed successfully
+⚠ No models found, downloading qwen2.5-0.5b-instruct...
+✓ Model downloaded successfully (~400MB)
+✓ llama-chat downloaded successfully
 ✓ Virtual environment created
 ✓ Dependencies installed successfully
-✓ chat-o-llama started successfully!
+✓ llama.cpp server started on port 8080
+✓ llama-chat started successfully!
 
 🎉 Installation Complete! 🎉
 Access at: http://localhost:3000
@@ -139,14 +141,14 @@ Access at: http://localhost:3000
 
 ### Post-Installation
 
-After automatic installation, you can manage the service with:
+After automatic installation, you can manage the services with:
 
 ```bash
-cd ~/chat-o-llama
+cd ~/llama-chat
 source venv/bin/activate
 ./chat-manager.sh status    # Check status
-./chat-manager.sh stop      # Stop service
-./chat-manager.sh restart   # Restart service
+./chat-manager.sh stop      # Stop services
+./chat-manager.sh restart   # Restart services
 ./chat-manager.sh logs      # View logs
 ```
 
@@ -162,30 +164,46 @@ source venv/bin/activate
 ```bash
 # Install Python 3.8+ with essential modules
 sudo apt update
-sudo apt install python3 python3-pip python3-venv git curl
+sudo apt install python3 python3-pip python3-venv git curl build-essential cmake
 
 # Verify Python version (should be 3.8+)
 python3 --version
 
-# Install Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
+# Install llama.cpp
+git clone https://github.com/ggml-org/llama.cpp.git
+cd llama.cpp
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc)
+sudo cp bin/llama-server /usr/local/bin/
+cd ../..
 
 # Download a model for immediate use
-ollama pull qwen2.5:0.5b  # ~380MB, recommended starter
+mkdir -p models
+curl -L -o models/qwen2.5-0.5b-instruct-q4_0.gguf \
+  "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf"
 ```
 
 #### CentOS/RHEL/Fedora
 ```bash
 # Install Python 3.8+ and tools
-sudo yum install python3 python3-pip git curl
-# OR for newer versions
-sudo dnf install python3 python3-pip git curl
+sudo dnf install python3 python3-pip git curl cmake gcc-c++ make
+# OR for older versions
+sudo yum install python3 python3-pip git curl cmake gcc-c++ make
 
-# Install Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
+# Install llama.cpp (same as Ubuntu)
+git clone https://github.com/ggml-org/llama.cpp.git
+cd llama.cpp
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc)
+sudo cp bin/llama-server /usr/local/bin/
+cd ../..
 
 # Download a model
-ollama pull qwen2.5:0.5b
+mkdir -p models
+curl -L -o models/qwen2.5-0.5b-instruct-q4_0.gguf \
+  "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf"
 ```
 
 #### macOS
@@ -193,15 +211,22 @@ ollama pull qwen2.5:0.5b
 # Install Homebrew if not installed
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
-# Install Python and git
-brew install python3 git
+# Install Python and dependencies
+brew install python3 git cmake
 
-# Install Ollama
-curl -fsSL https://ollama.ai/install.sh | sh
-# OR download from https://ollama.ai/download
+# Install llama.cpp
+git clone https://github.com/ggml-org/llama.cpp.git
+cd llama.cpp
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(sysctl -n hw.ncpu)
+cp bin/llama-server /usr/local/bin/
+cd ../..
 
 # Download a model
-ollama pull qwen2.5:0.5b
+mkdir -p models
+curl -L -o models/qwen2.5-0.5b-instruct-q4_0.gguf \
+  "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf"
 ```
 
 #### Windows (WSL2 recommended)
@@ -215,9 +240,9 @@ ollama pull qwen2.5:0.5b
 **Time estimate: ~2 minutes**
 
 ```bash
-# 1. Download chat-o-llama
-git clone https://github.com/ukkit/chat-o-llama.git
-cd chat-o-llama
+# 1. Download llama-chat
+git clone https://github.com/ukkit/llama-chat.git
+cd llama-chat
 
 # 2. Create and activate virtual environment
 python3 -m venv venv
@@ -243,47 +268,73 @@ chmod +x chat-manager.sh
 **Ubuntu/Debian:**
 ```bash
 sudo apt update
-sudo apt install python3 python3-pip python3-venv git curl
+sudo apt install python3 python3-pip python3-venv git curl build-essential cmake
 python3 --version  # Verify 3.8+
 ```
 
 **CentOS/RHEL:**
 ```bash
-sudo yum install python3 python3-pip git curl
+sudo dnf install python3 python3-pip git curl cmake gcc-c++ make
 python3 --version  # Verify 3.8+
 ```
 
 **macOS:**
 ```bash
-brew install python3 git
+brew install python3 git cmake
 python3 --version  # Verify 3.8+
 ```
 
-#### Step 2: Install Ollama and Model
+#### Step 2: Install llama.cpp
 
 ```bash
-# Install Ollama (all platforms)
-curl -fsSL https://ollama.ai/install.sh | sh
+# Clone and build llama.cpp
+git clone https://github.com/ggml-org/llama.cpp.git
+cd llama.cpp
+mkdir build && cd build
 
-# Start Ollama service
-ollama serve &
+# Configure with GPU support (optional)
+# For CUDA:
+# cmake -DCMAKE_BUILD_TYPE=Release -DLLAMA_CUDA=ON ..
+# For Metal (macOS):
+# cmake -DCMAKE_BUILD_TYPE=Release -DLLAMA_METAL=ON ..
+# For CPU only:
+cmake -DCMAKE_BUILD_TYPE=Release ..
 
-# Verify Ollama is running
-ollama list
+# Build (adjust -j based on your CPU cores)
+make -j$(nproc)
 
-# Download recommended model (~380MB)
-ollama pull qwen2.5:0.5b
+# Install llama-server binary
+sudo cp bin/llama-server /usr/local/bin/
+# OR for user install:
+# mkdir -p ~/.local/bin && cp bin/llama-server ~/.local/bin/
 
-# Verify model downloaded
-ollama list  # Should show qwen2.5:0.5b
+# Verify installation
+llama-server --help
+
+cd ../..  # Return to working directory
 ```
 
-#### Step 3: Install chat-o-llama
+#### Step 3: Download Models
+
+```bash
+# Create models directory
+mkdir -p models
+
+# Download recommended starter model (~400MB)
+echo "Downloading qwen2.5-0.5b-instruct model..."
+curl -L --progress-bar -o models/qwen2.5-0.5b-instruct-q4_0.gguf \
+  "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf"
+
+# Verify download
+ls -lh models/
+```
+
+#### Step 4: Install llama-chat
 
 ```bash
 # Clone repository
-git clone https://github.com/ukkit/chat-o-llama.git
-cd chat-o-llama
+git clone https://github.com/ukkit/llama-chat.git
+cd llama-chat
 
 # Create virtual environment
 python3 -m venv venv
@@ -300,13 +351,16 @@ chmod +x chat-manager.sh
 ./chat-manager.sh start
 ```
 
-#### Step 4: Verify Installation
+#### Step 5: Verify Installation
 
 ```bash
-# Check if application is running
+# Check if services are running
 ./chat-manager.sh status
 
-# Test API
+# Test llama.cpp server API
+curl http://localhost:8080/health
+
+# Test Flask app
 curl http://localhost:3000/api/models
 
 # Open in browser
@@ -320,21 +374,21 @@ curl http://localhost:3000/api/models
 ### For 2-Minute Setup
 ```bash
 # 1. Pre-install everything first
-sudo apt update && sudo apt install python3 python3-pip python3-venv git
-curl -fsSL https://ollama.ai/install.sh | sh
-ollama pull qwen2.5:0.5b
+sudo apt update && sudo apt install python3 python3-pip python3-venv git cmake build-essential
+# Compile llama.cpp (5-8 minutes)
+# Download model (2-5 minutes depending on size)
 
 # 2. Then run installer (will be super fast)
-curl -fsSL https://github.com/ukkit/chat-o-llama/raw/main/install.sh | sh
+curl -fsSL https://github.com/ukkit/llama-chat/raw/main/install.sh | bash
 ```
 
 ### Model Download Time Estimates
 | Model | Size | Download Time* | Performance |
 |-------|------|----------------|-------------|
-| qwen2.5:0.5b | ~380MB | 1-3 minutes | Fast, good quality |
+| qwen2.5-0.5b-instruct | ~400MB | 1-3 minutes | Fast, good quality |
 | tinyllama | ~637MB | 2-5 minutes | Ultra lightweight |
-| llama3.2:1b | ~1.3GB | 3-8 minutes | Better quality |
-| phi3:mini | ~2.3GB | 5-15 minutes | Excellent balance |
+| phi3-mini-4k-instruct | ~2.3GB | 5-15 minutes | Excellent balance |
+| llama3.2-1b-instruct | ~1.3GB | 3-8 minutes | Better quality |
 
 *Depends on internet speed
 
@@ -346,12 +400,12 @@ curl -fsSL https://github.com/ukkit/chat-o-llama/raw/main/install.sh | sh
 ### Hardware Performance Tips
 ```bash
 # For systems with limited resources
-ollama pull qwen2.5:0.5b  # Use smallest model
-cp speed_config.json config.json  # Use speed-optimized config
+# Use smallest model and speed config
+cp docs/speed_config.json config.json
 
-# For powerful systems
-ollama pull phi3:mini  # Use higher quality model
-# Keep default config.json for best quality
+# For powerful systems with GPU
+# Edit llama-chat.conf:
+GPU_LAYERS=32  # Use GPU acceleration
 ```
 
 ---
@@ -373,18 +427,20 @@ sudo apt install python3-pip  # Ubuntu/Debian
 sudo apt install python3-venv  # Ubuntu/Debian
 ```
 
-#### Ollama Issues
+#### llama.cpp Issues
 ```bash
-# Ollama command not found
-curl -fsSL https://ollama.ai/install.sh | sh
+# llama-server command not found
+export PATH="/usr/local/bin:$PATH"
+# OR check if it's in ~/.local/bin
+export PATH="$HOME/.local/bin:$PATH"
 
-# Ollama service not running
-ollama serve  # Manual start
-sudo systemctl start ollama  # Systemd
+# Compilation errors
+sudo apt install build-essential cmake  # Ubuntu/Debian
+brew install cmake                       # macOS
 
-# Connection refused
-netstat -tulpn | grep 11434  # Check if port is open
-curl http://localhost:11434/api/tags  # Test connection
+# CUDA compilation issues (if using GPU)
+export CUDA_PATH=/usr/local/cuda
+cmake -DCMAKE_BUILD_TYPE=Release -DLLAMA_CUDA=ON ..
 ```
 
 #### Permission Issues
@@ -393,23 +449,26 @@ curl http://localhost:11434/api/tags  # Test connection
 chmod +x chat-manager.sh install.sh
 
 # Directory permissions
-sudo chown -R $USER:$USER ~/chat-o-llama
+sudo chown -R $USER:$USER ~/llama-chat
 ```
 
 #### Port Issues
 ```bash
 # Port already in use
-./chat-manager.sh start 8080  # Use different port
-sudo lsof -i :3000  # Check what's using port 3000
+./chat-manager.sh start-llamacpp 8081  # Use different port
+./chat-manager.sh start-flask 3001     # Use different port
+sudo lsof -i :8080  # Check what's using port 8080
 ```
 
 #### Memory Issues
 ```bash
 # For low-memory systems, use smaller models
-ollama pull qwen2.5:0.5b  # Only ~380MB
+# Download tinyllama instead:
+curl -L -o models/tinyllama-1.1b-chat-v1.0.Q4_0.gguf \
+  "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_0.gguf"
 
 # Use speed config for less memory
-cp speed_config.json config.json
+cp docs/speed_config.json config.json
 ./chat-manager.sh restart
 ```
 
@@ -421,20 +480,21 @@ export DEBUG=true
 ./chat-manager.sh start
 
 # View detailed logs
-./chat-manager.sh logs
-tail -f logs/chat-o-llama_*.log
+./chat-manager.sh logs both
+tail -f logs/llamacpp.log
+tail -f logs/flask.log
 ```
 
 ### Reinstall/Reset
 
 ```bash
 # Complete reinstall
-rm -rf ~/chat-o-llama
-curl -fsSL https://github.com/ukkit/chat-o-llama/raw/main/install.sh | sh
+rm -rf ~/llama-chat
+curl -fsSL https://github.com/ukkit/llama-chat/raw/main/install.sh | bash
 
 # Reset only database
 ./chat-manager.sh stop
-rm -f data/chat-o-llama.db
+rm -f data/llama-chat.db
 ./chat-manager.sh start
 
 # Reset only virtual environment
@@ -450,46 +510,58 @@ pip install -r requirements.txt
 
 After installation, verify everything works:
 
-- [ ] **Python**: `python --version` shows 3.8+
-- [ ] **Ollama**: `ollama list` shows available models
-- [ ] **Service**: `./chat-manager.sh status` shows running
+- [ ] **Python**: `python3 --version` shows 3.8+
+- [ ] **llama.cpp**: `llama-server --help` shows options
+- [ ] **Models**: `.gguf` files exist in models directory
+- [ ] **Services**: `./chat-manager.sh status` shows both running
 - [ ] **Web Interface**: http://localhost:3000 loads
-- [ ] **API**: `curl http://localhost:3000/api/models` returns models
+- [ ] **API**: `curl http://localhost:8080/health` returns OK
 - [ ] **Chat**: Can select model and send test message
 
 ---
 
 ## 🔄 Updates and Maintenance
 
-### Update chat-o-llama
+### Update llama-chat
 
 ```bash
-cd ~/chat-o-llama
+cd ~/llama-chat
+./chat-manager.sh stop
 git pull origin main
 source venv/bin/activate
 pip install -r requirements.txt
-./chat-manager.sh restart
+./chat-manager.sh start
 ```
 
-### Update Ollama Models
+### Update llama.cpp
 
 ```bash
-# Update existing models
-ollama pull qwen2.5:0.5b
-ollama pull llama3.2:1b
+# Update to latest llama.cpp
+cd ~/llama.cpp  # Or wherever you compiled it
+git pull origin master
+cd build
+make -j$(nproc)
+sudo cp bin/llama-server /usr/local/bin/
+```
 
-# Add new models
-ollama pull phi3:mini
+### Download New Models
+
+```bash
+cd ~/llama-chat
+./chat-manager.sh download-model \
+  "https://huggingface.co/model-url/model.gguf" \
+  "model.gguf"
 ```
 
 ### Backup Data
 
 ```bash
 # Backup conversation database
-cp data/chat-o-llama.db ~/chat-o-llama-backup.db
+cp data/llama-chat.db ~/llama-chat-backup.db
 
 # Backup configuration
 cp config.json ~/config-backup.json
+cp llama-chat.conf ~/llama-chat-conf-backup
 ```
 
 ---
@@ -499,8 +571,8 @@ cp config.json ~/config-backup.json
 If you encounter issues:
 
 1. **Check the troubleshooting section above**
-2. **View logs**: `./chat-manager.sh logs`
-3. **Check GitHub Issues**: https://github.com/ukkit/chat-o-llama/issues
+2. **View logs**: `./chat-manager.sh logs both`
+3. **Check GitHub Issues**: https://github.com/ukkit/llama-chat/issues
 4. **Enable debug mode**: `DEBUG=true ./chat-manager.sh start`
 5. **Verify system requirements** are met
 
@@ -513,10 +585,10 @@ If you encounter issues:
 ```bash
 # Collect system info for bug reports
 echo "OS: $(uname -a)"
-echo "Python: $(python --version)"
-echo "Ollama: $(ollama --version)"
-echo "Models: $(ollama list)"
+echo "Python: $(python3 --version)"
+echo "llama.cpp: $(llama-server --version 2>/dev/null || echo 'not found')"
+echo "Models: $(ls -la models/ 2>/dev/null || echo 'no models directory')"
 ./chat-manager.sh status
 ```
 
-Happy chatting with Ollama! 🦙
+Happy chatting with llama.cpp! 🦙
