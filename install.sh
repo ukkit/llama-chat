@@ -1,8 +1,11 @@
 #!/bin/bash
 
-# llama-chat Auto Installer for llama.cpp (Non-Interactive Version)
+# llama-chat Auto Installer (Non-Interactive Version)
 # Usage: curl -fsSL https://github.com/ukkit/llama-chat/raw/main/install.sh | bash
 # Or: wget -O- https://github.com/ukkit/llama-chat/raw/main/install.sh | bash
+#
+# NOTE: This installer assumes llama.cpp is already installed or will be installed separately.
+# Use llama_cpp_setup_script.sh to install llama.cpp if needed.
 
 # For better compatibility, try to use bash if available
 if command -v bash >/dev/null 2>&1; then
@@ -30,6 +33,10 @@ INSTALL_DIR="${CHAT_OLLAMA_INSTALL_DIR:-$HOME/llama-chat}"
 DEFAULT_PORT="${CHAT_OLLAMA_PORT:-3333}"
 LLAMACPP_PORT="${LLAMACPP_PORT:-8120}"
 
+# llama.cpp paths (can be overridden by environment variables)
+LLAMACPP_BINARY="${LLAMACPP_BINARY:-llama-server}"  # Will search in PATH if just binary name
+MODELS_DIR="${MODELS_DIR:-$HOME/llama_models}"      # Default models directory
+
 # Model configuration
 RECOMMENDED_MODEL="${CHAT_OLLAMA_MODEL:-qwen2.5-0.5b-instruct-q4_0.gguf}"
 MODEL_URL="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf"
@@ -48,7 +55,7 @@ FORCE_REINSTALL="${CHAT_OLLAMA_FORCE_REINSTALL:-true}"
 # Function to print colored output
 print_header() {
     echo -e "${PURPLE}╔══════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║      llama-chat 🦙 (llama.cpp)       ║${NC}"
+    echo -e "${PURPLE}║      llama-chat 🦙 Application       ║${NC}"
     echo -e "${PURPLE}║      Non-Interactive Installer       ║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════╝${NC}"
     echo ""
@@ -190,122 +197,78 @@ check_python() {
     fi
 }
 
-# Function to install llama.cpp
-install_llamacpp() {
+# Function to check llama.cpp installation
+check_llamacpp() {
     print_step "Checking llama.cpp installation..."
 
-    if command_exists llama-server; then
-        print_success "llama.cpp already installed at $(command -v llama-server)"
-        return 0
+    # Try to find llama-server binary
+    local llamacpp_path=""
+    
+    # First, check if LLAMACPP_BINARY is a full path
+    if [ -f "$LLAMACPP_BINARY" ] && [ -x "$LLAMACPP_BINARY" ]; then
+        llamacpp_path="$LLAMACPP_BINARY"
+    # Otherwise, check if it's in PATH
+    elif command_exists "$LLAMACPP_BINARY"; then
+        llamacpp_path=$(command -v "$LLAMACPP_BINARY")
+    # Check common installation locations
+    elif [ -f "/usr/local/bin/llama-server" ]; then
+        llamacpp_path="/usr/local/bin/llama-server"
+    elif [ -f "$HOME/.local/bin/llama-server" ]; then
+        llamacpp_path="$HOME/.local/bin/llama-server"
+    elif [ -f "$HOME/llama.cpp/build/bin/llama-server" ]; then
+        llamacpp_path="$HOME/llama.cpp/build/bin/llama-server"
     fi
 
-    print_info "Installing llama.cpp..."
-
-    # Try different installation methods based on OS
-    if command_exists apt-get; then
-        install_llamacpp_debian
-    elif command_exists yum || command_exists dnf; then
-        install_llamacpp_rhel
-    elif command_exists brew; then
-        install_llamacpp_macos
-    else
-        install_llamacpp_source
-    fi
-}
-
-# Function to install llama.cpp on Debian/Ubuntu
-install_llamacpp_debian() {
-    print_info "Installing build dependencies for Debian/Ubuntu..."
-
-    # Install build tools
-    sudo apt-get update >/dev/null 2>&1
-    sudo apt-get install -y build-essential cmake git wget curl >/dev/null 2>&1
-    sudo apt-get install -y libssl-dev libopenblas-dev ccache libcurl4-openssl-dev >/dev/null 2>&1
-
-    install_llamacpp_source
-}
-
-# Function to install llama.cpp on RHEL/CentOS/Fedora
-install_llamacpp_rhel() {
-    print_info "Installing build dependencies for RHEL/CentOS/Fedora..."
-
-    # Install build tools
-    if command_exists dnf; then
-        sudo dnf group install -y "Development Tools" >/dev/null 2>&1
-        sudo dnf install -y cmake git wget curl openssl-devel openblas-devel ccache libcurl-devel >/dev/null 2>&1
-    else
-        sudo yum groupinstall -y "Development Tools" >/dev/null 2>&1
-        sudo yum install -y cmake git wget curl openssl-devel openblas-devel ccache libcurl-devel >/dev/null 2>&1
-    fi
-
-    install_llamacpp_source
-}
-
-# Function to install llama.cpp on macOS
-install_llamacpp_macos() {
-    print_info "Installing llama.cpp via Homebrew..."
-
-    if brew install llama.cpp >/dev/null 2>&1; then
-        print_success "llama.cpp installed via Homebrew"
-    else
-        print_warning "Homebrew installation failed, trying from source..."
-        install_llamacpp_source
-    fi
-}
-
-# Function to install llama.cpp from source
-install_llamacpp_source() {
-    print_info "Compiling llama.cpp from source..."
-
-    # Create temporary directory
-    local temp_dir="/tmp/llama.cpp.$$"
-    mkdir -p "$temp_dir"
-    cd "$temp_dir"
-
-    # Clone and build llama.cpp from the correct repository
-    if git clone https://github.com/ggml-org/llama.cpp.git >/dev/null 2>&1; then
-        cd llama.cpp
-        mkdir build && cd build
-
-        # Configure and build - basic CPU build
-        if cmake -DCMAKE_BUILD_TYPE=Release .. >/dev/null 2>&1 && make -j$(nproc 2>/dev/null || echo "4") >/dev/null 2>&1; then
-            # Try to install to system directory
-            if sudo cp bin/llama-server /usr/local/bin/ 2>/dev/null; then
-                print_success "llama.cpp installed to /usr/local/bin/"
-            elif mkdir -p "$HOME/.local/bin" && cp bin/llama-server "$HOME/.local/bin/"; then
-                print_success "llama.cpp installed to $HOME/.local/bin/"
-                print_info "Make sure $HOME/.local/bin is in your PATH"
-                export PATH="$HOME/.local/bin:$PATH"
-            else
-                print_error "Failed to install llama.cpp binary"
-                cd "$INSTALL_DIR"
-                rm -rf "$temp_dir"
-                return 1
-            fi
+    if [ -n "$llamacpp_path" ]; then
+        print_success "llama.cpp found at: $llamacpp_path"
+        # Test if it's working
+        if "$llamacpp_path" --help >/dev/null 2>&1; then
+            print_success "llama.cpp binary is functional"
+            # Store the working path for later use
+            echo "LLAMACPP_BINARY_PATH=$llamacpp_path" >> /tmp/chat_ollama_env
         else
-            print_error "Failed to compile llama.cpp"
-            cd "$INSTALL_DIR"
-            rm -rf "$temp_dir"
+            print_warning "llama.cpp binary found but not functional"
             return 1
         fi
     else
-        print_error "Failed to clone llama.cpp repository"
-        cd "$INSTALL_DIR"
-        rm -rf "$temp_dir"
+        print_warning "llama.cpp not found!"
+        print_info "Please install llama.cpp first:"
+        print_info "• Use the provided script: ./llama_cpp_setup_script.sh"
+        print_info "• Or install manually and set LLAMACPP_BINARY environment variable"
+        print_info "• Common locations checked:"
+        print_info "  - /usr/local/bin/llama-server"
+        print_info "  - $HOME/.local/bin/llama-server"
+        print_info "  - $HOME/llama.cpp/build/bin/llama-server"
+        echo ""
+        print_info "Set LLAMACPP_BINARY to specify custom location:"
+        print_info "  export LLAMACPP_BINARY=/path/to/llama-server"
         return 1
     fi
+}
 
-    # Clean up
-    cd "$INSTALL_DIR"
-    rm -rf "$temp_dir"
-
-    # Verify installation
-    if command_exists llama-server; then
-        print_success "llama.cpp installation verified"
-        return 0
+# Function to setup models directory
+setup_models_directory() {
+    print_step "Setting up models directory..."
+    
+    # Create models directory if it doesn't exist
+    if [ ! -d "$MODELS_DIR" ]; then
+        mkdir -p "$MODELS_DIR"
+        print_success "Created models directory: $MODELS_DIR"
     else
-        print_error "llama-server not found after installation"
-        return 1
+        print_success "Models directory exists: $MODELS_DIR"
+    fi
+
+    # Check for existing models
+    local existing_models=$(find "$MODELS_DIR" -name "*.gguf" 2>/dev/null | wc -l)
+    if [ "$existing_models" -gt 0 ]; then
+        print_success "Found $existing_models existing model(s):"
+        find "$MODELS_DIR" -name "*.gguf" | while read -r model; do
+            local size=$(du -h "$model" 2>/dev/null | cut -f1)
+            local basename=$(basename "$model")
+            print_info "  • $basename ($size)"
+        done
+    else
+        print_info "No .gguf models found in $MODELS_DIR"
     fi
 }
 
@@ -432,22 +395,13 @@ create_virtual_env() {
 
 # Function to download models
 download_models() {
-    print_step "Setting up models directory..."
-
-    # Create models directory
-    local models_dir="$INSTALL_DIR/models"
-    mkdir -p "$models_dir"
+    print_step "Downloading models to $MODELS_DIR..."
 
     # Check if any models already exist
-    local existing_models=$(find "$models_dir" -name "*.gguf" 2>/dev/null | wc -l)
+    local existing_models=$(find "$MODELS_DIR" -name "*.gguf" 2>/dev/null | wc -l)
 
     if [ "$existing_models" -gt 0 ]; then
-        print_success "Found $existing_models existing model(s) in $models_dir"
-        find "$models_dir" -name "*.gguf" | while read -r model; do
-            local size=$(du -h "$model" 2>/dev/null | cut -f1)
-            local basename=$(basename "$model")
-            print_info "  • $basename ($size)"
-        done
+        print_success "Found $existing_models existing model(s) in $MODELS_DIR"
         return 0
     fi
 
@@ -464,7 +418,7 @@ download_models() {
         [Yy]*|""|"true"|"1")  # Y, y, Yes, yes, true, 1, or empty (default)
             print_info "Downloading $RECOMMENDED_MODEL (this may take a few minutes)..."
 
-            local model_path="$models_dir/$RECOMMENDED_MODEL"
+            local model_path="$MODELS_DIR/$RECOMMENDED_MODEL"
 
             # Try wget first, then curl
             local download_success=false
@@ -487,7 +441,7 @@ download_models() {
                 rm -f "$model_path"
 
                 # Try fallback model
-                local fallback_path="$models_dir/$FALLBACK_MODEL"
+                local fallback_path="$MODELS_DIR/$FALLBACK_MODEL"
                 local fallback_success=false
 
                 if command_exists wget; then
@@ -527,6 +481,9 @@ download_models() {
 create_config_file() {
     print_step "Creating configuration file..."
 
+    # Source environment variables with paths
+    source /tmp/chat_ollama_env
+
     cat > "$INSTALL_DIR/llama-chat.conf" << EOF
 # llama-chat Configuration File
 # This file contains configuration options for llama-chat and llama.cpp server
@@ -542,7 +499,8 @@ FLASK_DEBUG="false"
 # llama.cpp server settings
 LLAMACPP_HOST="127.0.0.1"
 LLAMACPP_PORT="$LLAMACPP_PORT"
-MODELS_DIR="$INSTALL_DIR/models"
+LLAMACPP_BINARY="${LLAMACPP_BINARY_PATH:-$LLAMACPP_BINARY}"
+MODELS_DIR="$MODELS_DIR"
 
 # Model settings
 DEFAULT_MODEL=""  # Auto-detect first .gguf file in models directory
@@ -599,6 +557,9 @@ setup_permissions() {
 test_installation() {
     print_step "Testing installation..."
 
+    # Source configuration and paths
+    source /tmp/chat_ollama_env
+
     # Activate virtual environment
     source venv/bin/activate
 
@@ -610,22 +571,32 @@ test_installation() {
         return 1
     fi
 
-    # Check if llama-server is available
-    if command_exists llama-server; then
-        print_success "llama.cpp installation verified"
+    # Check if llama.cpp binary is available and working
+    local binary_path="${LLAMACPP_BINARY_PATH:-$LLAMACPP_BINARY}"
+    if [ -f "$binary_path" ] && [ -x "$binary_path" ]; then
+        if "$binary_path" --help >/dev/null 2>&1; then
+            print_success "llama.cpp binary verified: $binary_path"
+        else
+            print_error "llama.cpp binary not functional: $binary_path"
+            return 1
+        fi
+    elif command_exists "$binary_path"; then
+        print_success "llama.cpp binary found in PATH: $(command -v "$binary_path")"
     else
-        print_warning "llama-server not found in PATH"
+        print_error "llama.cpp binary not found: $binary_path"
         return 1
     fi
 
-    # Check if models directory exists
-    if [ -d "models" ]; then
-        local model_count=$(find models -name "*.gguf" 2>/dev/null | wc -l)
+    # Check if models directory exists and has models
+    if [ -d "$MODELS_DIR" ]; then
+        local model_count=$(find "$MODELS_DIR" -name "*.gguf" 2>/dev/null | wc -l)
         if [ "$model_count" -gt 0 ]; then
-            print_success "Found $model_count model file(s)"
+            print_success "Found $model_count model file(s) in $MODELS_DIR"
         else
             print_warning "No model files found (you can download them later)"
         fi
+    else
+        print_warning "Models directory not found: $MODELS_DIR"
     fi
 
     return 0
@@ -640,11 +611,17 @@ start_llamacpp_server() {
         source "$INSTALL_DIR/llama-chat.conf"
     fi
 
+    # Source paths from temp file
+    source /tmp/chat_ollama_env
+
+    # Use configured binary path
+    local binary_path="${LLAMACPP_BINARY_PATH:-$LLAMACPP_BINARY}"
+    
     # Find a model file
-    local model_file=$(find "$INSTALL_DIR/models" -name "*.gguf" 2>/dev/null | head -n1)
+    local model_file=$(find "$MODELS_DIR" -name "*.gguf" 2>/dev/null | head -n1)
 
     if [ -z "$model_file" ]; then
-        print_warning "No model files found, llama.cpp server cannot start"
+        print_warning "No model files found in $MODELS_DIR, llama.cpp server cannot start"
         print_info "Download a model first with: ./chat-manager.sh download-model <url> <filename>"
         return 1
     fi
@@ -655,20 +632,37 @@ start_llamacpp_server() {
         return 0
     fi
 
+    print_info "Using binary: $binary_path"
     print_info "Using model: $(basename "$model_file")"
     print_info "Starting llama.cpp server on port $LLAMACPP_PORT..."
 
     # Start server in background with configuration
     mkdir -p logs
-    nohup llama-server \
-        --model "$model_file" \
-        --port $LLAMACPP_PORT \
-        --host ${LLAMACPP_HOST:-0.0.0.0} \
-        --ctx-size ${CONTEXT_SIZE:-4096} \
-        --threads ${THREADS:-$(nproc 2>/dev/null || echo "4")} \
-        --n-gpu-layers ${GPU_LAYERS:-0} \
-        --batch-size ${BATCH_SIZE:-512} \
-        > logs/llamacpp.log 2>&1 &
+    
+    # Determine optimal settings
+    THREADS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+    CONTEXT_SIZE=${CONTEXT_SIZE:-4096}
+    BATCH_SIZE=${BATCH_SIZE:-512}
+    GPU_LAYERS=${GPU_LAYERS:-0}
+
+    # Server arguments
+    SERVER_ARGS=(
+        "--model" "$model_file"
+        "--host" "${LLAMACPP_HOST:-0.0.0.0}"
+        "--port" "$LLAMACPP_PORT"
+        "--ctx-size" "$CONTEXT_SIZE"
+        "--batch-size" "$BATCH_SIZE"
+        "--threads" "$THREADS"
+        "--log-format" "text"
+        "--verbose"
+    )
+
+    # Add GPU layers if configured
+    if [ "$GPU_LAYERS" -gt 0 ]; then
+        SERVER_ARGS+=("--n-gpu-layers" "$GPU_LAYERS")
+    fi
+
+    nohup "$binary_path" "${SERVER_ARGS[@]}" > logs/llamacpp.log 2>&1 &
 
     echo $! > llamacpp.pid
 
@@ -690,170 +684,6 @@ start_llamacpp_server() {
     if [ $attempt -gt $max_attempts ]; then
         print_warning "Services may still be starting. Check manually with: ./chat-manager.sh status"
     fi
-}
-
-# Function to show final instructions
-show_final_instructions() {
-    echo ""
-    echo -e "${CYAN}═══════════════════════════════════════${NC}"
-    echo -e "${CYAN}    🚀 Installation Complete! 🚀${NC}"
-    echo -e "${CYAN}    (llama.cpp Edition)${NC}"
-    echo -e "${CYAN}═══════════════════════════════════════${NC}"
-    echo ""
-    echo -e "${YELLOW}Installation Directory:${NC} $INSTALL_DIR"
-    echo -e "${YELLOW}Configuration File:${NC} $INSTALL_DIR/llama-chat.conf"
-    if [ "$AUTO_START" = "true" ]; then
-        echo -e "${YELLOW}Web Interface:${NC} http://localhost:$DEFAULT_PORT"
-        echo -e "${YELLOW}llama.cpp API:${NC} http://${LLAMACPP_HOST:-127.0.0.1}:$LLAMACPP_PORT"
-    fi
-    echo ""
-    echo -e "${YELLOW}Configuration:${NC}"
-    echo -e "  Edit $INSTALL_DIR/llama-chat.conf to customize settings"
-    echo -e "  Key settings: models directory, ports, GPU layers, context size"
-    echo ""
-    echo -e "${YELLOW}Environment Variables (set before running installer):${NC}"
-    echo -e "  export CHAT_OLLAMA_INSTALL_DIR=/custom/path"
-    echo -e "  export CHAT_OLLAMA_MODEL=phi3-mini-4k-instruct-q4.gguf"
-    echo -e "  export CHAT_OLLAMA_AUTO_START=false"
-    echo -e "  export CHAT_OLLAMA_DOWNLOAD_MODEL=false"
-    echo -e "  export LLAMACPP_PORT=8080"
-    echo ""
-    echo -e "${YELLOW}To manage the services:${NC}"
-    echo -e "  cd $INSTALL_DIR"
-    echo -e "  source venv/bin/activate"
-    echo -e "  ./chat-manager.sh [start|stop|status|restart]"
-    echo -e "  ./chat-manager.sh start-llamacpp   # Start only llama.cpp"
-    echo -e "  ./chat-manager.sh start-flask      # Start only Flask app"
-    echo ""
-    echo -e "${YELLOW}To download more models:${NC}"
-    echo -e "  ./chat-manager.sh download-model \\"
-    echo -e "    https://huggingface.co/model.gguf model.gguf"
-    echo -e "  ./chat-manager.sh list-models      # Show available models"
-    echo ""
-    echo -e "${YELLOW}llama.cpp Environment Variables:${NC}"
-    echo -e "  All llama-server options can be set via LLAMA_ARG_* variables"
-    echo -e "  Example: export LLAMA_ARG_N_GPU_LAYERS=32"
-    echo -e "  See configuration file for complete list"
-    echo ""
-    echo -e "${YELLOW}To update llama-chat:${NC}"
-    echo -e "  cd $INSTALL_DIR"
-    echo -e "  git pull origin main"
-    echo -e "  source venv/bin/activate"
-    echo -e "  pip install -r requirements.txt"
-    echo -e "  ./chat-manager.sh restart"
-    echo ""
-    echo -e "${YELLOW}Recommended models to try:${NC}"
-    echo -e "  • Qwen2.5-0.5B (~400MB) - Fast, good quality"
-    echo -e "  • Phi-3-Mini (~2.3GB) - Excellent quality"
-    echo -e "  • Llama-3.2-1B (~1.3GB) - Good balance"
-    echo -e "  • Gemma-2-2B (~1.6GB) - Google's efficient model"
-    echo ""
-    echo -e "${YELLOW}GPU Acceleration:${NC}"
-    echo -e "  Edit GPU_LAYERS in llama-chat.conf to enable GPU offloading"
-    echo -e "  Set to number of layers (e.g., 32) or -1 for all layers"
-    echo ""
-    echo -e "${YELLOW}Troubleshooting:${NC}"
-    echo -e "  ./chat-manager.sh test              # Test the stack"
-    echo -e "  ./chat-manager.sh logs both         # View all logs"
-    echo -e "  ./chat-manager.sh info              # System information"
-    echo -e "  tail -f logs/llamacpp.log           # llama.cpp server logs"
-    echo -e "  tail -f logs/flask.log              # Flask app logs"
-    echo ""
-    echo -e "${GREEN}Support:${NC} https://github.com/ukkit/llama-chat"
-    echo -e "${GREEN}llama.cpp:${NC} https://github.com/ggml-org/llama.cpp"
-}
-
-# Function to cleanup on error (POSIX compatible)
-cleanup_on_error() {
-    local exit_code=$?
-    if [ $exit_code -ne 0 ]; then
-        print_error "Installation failed with exit code $exit_code. Cleaning up..."
-
-        # Remove temp files
-        rm -f /tmp/chat_ollama_env
-
-        # Auto-cleanup partial installation (non-interactive)
-        if [ -d "$INSTALL_DIR" ] && [ ! -f "$INSTALL_DIR/.git/config" ]; then
-            print_info "Removing partial installation directory..."
-            rm -rf "$INSTALL_DIR"
-            print_info "Partial installation removed"
-        fi
-    fi
-    exit $exit_code
-}
-
-# Set up error handling (POSIX compatible)
-handle_error() {
-    cleanup_on_error
-}
-
-# Main installation function (NON-INTERACTIVE)
-main() {
-    # Clear screen and show header
-    clear
-    print_header
-
-    print_info "Non-interactive llama.cpp installation starting..."
-    print_info "Installation directory: $INSTALL_DIR"
-    print_info "Flask app port: $DEFAULT_PORT"
-    print_info "llama.cpp port: $LLAMACPP_PORT"
-    print_info "Auto-start: $AUTO_START"
-    print_info "Download model: $AUTO_DOWNLOAD_MODEL"
-    echo ""
-    print_info "Customize with environment variables (see final instructions)"
-    echo ""
-
-    # NO USER CONFIRMATION - just start installation
-    print_info "Starting installation automatically..."
-    echo ""
-
-    # Run installation steps with error handling
-    check_python || handle_error
-    install_llamacpp || handle_error
-    check_install_directory || handle_error
-
-    # Only download if not updating
-    if [ ! -d "$INSTALL_DIR" ]; then
-        download_project || handle_error
-    fi
-
-    cd "$INSTALL_DIR" || handle_error
-    create_virtual_env || handle_error
-    download_models || handle_error
-    create_config_file || handle_error
-    setup_permissions || handle_error
-
-    # Test installation
-    if test_installation; then
-        start_application || handle_error
-        show_final_instructions
-    else
-        print_error "Installation test failed"
-        print_info "You may need to troubleshoot manually"
-        print_info "Try: ./chat-manager.sh info"
-        handle_error
-    fi
-
-    # Cleanup temp files
-    rm -f /tmp/chat_ollama_env
-}
-
-# Check if running as root (warn but don't prevent)
-if [ "$EUID" -eq 0 ]; then
-    print_warning "Running as root is not recommended"
-    print_info "Consider running as a regular user for better security"
-    echo ""
-fi
-
-# Run main installation
-main "$@"
-        printf "."
-    done
-    echo
-
-    print_warning "llama.cpp server started but not responding to health checks"
-    print_info "Check logs: tail -f logs/llamacpp.log"
-    return 1
 }
 
 # Function to start the application (OPTIONAL AUTO-START)
@@ -908,3 +738,192 @@ start_application() {
 
         sleep 2
         attempt=$((attempt + 1))
+    done
+
+    if [ $attempt -gt $max_attempts ]; then
+        print_warning "Flask app may still be starting. Check manually with: ./chat-manager.sh status"
+    fi
+}
+
+# Function to show final instructions
+show_final_instructions() {
+    echo ""
+    echo -e "${CYAN}═══════════════════════════════════════${NC}"
+    echo -e "${CYAN}    🚀 Installation Complete! 🚀${NC}"
+    echo -e "${CYAN}    (llama-chat Application)${NC}"
+    echo -e "${CYAN}═══════════════════════════════════════${NC}"
+    echo ""
+    echo -e "${YELLOW}Installation Directory:${NC} $INSTALL_DIR"
+    echo -e "${YELLOW}Configuration File:${NC} $INSTALL_DIR/llama-chat.conf"
+    echo -e "${YELLOW}Models Directory:${NC} $MODELS_DIR"
+    echo -e "${YELLOW}llama.cpp Binary:${NC} ${LLAMACPP_BINARY_PATH:-$LLAMACPP_BINARY}"
+    if [ "$AUTO_START" = "true" ]; then
+        echo -e "${YELLOW}Web Interface:${NC} http://localhost:$DEFAULT_PORT"
+        echo -e "${YELLOW}llama.cpp API:${NC} http://${LLAMACPP_HOST:-127.0.0.1}:$LLAMACPP_PORT"
+    fi
+    echo ""
+    echo -e "${YELLOW}Configuration:${NC}"
+    echo -e "  Edit $INSTALL_DIR/llama-chat.conf to customize settings"
+    echo -e "  Key settings: llama.cpp binary path, models directory, ports, GPU layers"
+    echo ""
+    echo -e "${YELLOW}Environment Variables (set before running installer):${NC}"
+    echo -e "  export CHAT_OLLAMA_INSTALL_DIR=/custom/path"
+    echo -e "  export LLAMACPP_BINARY=/path/to/llama-server"
+    echo -e "  export MODELS_DIR=/path/to/models"
+    echo -e "  export CHAT_OLLAMA_AUTO_START=false"
+    echo -e "  export CHAT_OLLAMA_DOWNLOAD_MODEL=false"
+    echo -e "  export LLAMACPP_PORT=8080"
+    echo ""
+    echo -e "${YELLOW}llama.cpp Installation:${NC}"
+    echo -e "  This installer assumes llama.cpp is already installed"
+    echo -e "  To install llama.cpp, use: ./llama_cpp_setup_script.sh"
+    echo -e "  Or install manually and set LLAMACPP_BINARY path"
+    echo ""
+    echo -e "${YELLOW}To manage the services:${NC}"
+    echo -e "  cd $INSTALL_DIR"
+    echo -e "  source venv/bin/activate"
+    echo -e "  ./chat-manager.sh [start|stop|status|restart]"
+    echo -e "  ./chat-manager.sh start-llamacpp   # Start only llama.cpp"
+    echo -e "  ./chat-manager.sh start-flask      # Start only Flask app"
+    echo ""
+    echo -e "${YELLOW}To download more models:${NC}"
+    echo -e "  ./chat-manager.sh download-model \\"
+    echo -e "    https://huggingface.co/model.gguf model.gguf"
+    echo -e "  ./chat-manager.sh list-models      # Show available models"
+    echo ""
+    echo -e "${YELLOW}Model Management:${NC}"
+    echo -e "  Models are stored in: $MODELS_DIR"
+    echo -e "  Supported format: .gguf files"
+    echo -e "  Auto-detection: First .gguf file found will be used"
+    echo ""
+    echo -e "${YELLOW}llama.cpp Configuration:${NC}"
+    echo -e "  Binary path: ${LLAMACPP_BINARY_PATH:-$LLAMACPP_BINARY}"
+    echo -e "  All llama-server options can be set via LLAMA_ARG_* variables"
+    echo -e "  Example: export LLAMA_ARG_N_GPU_LAYERS=32"
+    echo -e "  See configuration file for complete list"
+    echo ""
+    echo -e "${YELLOW}To update llama-chat:${NC}"
+    echo -e "  cd $INSTALL_DIR"
+    echo -e "  git pull origin main"
+    echo -e "  source venv/bin/activate"
+    echo -e "  pip install -r requirements.txt"
+    echo -e "  ./chat-manager.sh restart"
+    echo ""
+    echo -e "${YELLOW}Recommended models to try:${NC}"
+    echo -e "  • Qwen2.5-0.5B (~400MB) - Fast, good quality"
+    echo -e "  • Phi-3-Mini (~2.3GB) - Excellent quality"
+    echo -e "  • Llama-3.2-1B (~1.3GB) - Good balance"
+    echo -e "  • Gemma-2-2B (~1.6GB) - Google's efficient model"
+    echo ""
+    echo -e "${YELLOW}GPU Acceleration:${NC}"
+    echo -e "  Edit GPU_LAYERS in llama-chat.conf to enable GPU offloading"
+    echo -e "  Set to number of layers (e.g., 32) or -1 for all layers"
+    echo -e "  Requires compatible GPU and drivers"
+    echo ""
+    echo -e "${YELLOW}Troubleshooting:${NC}"
+    echo -e "  ./chat-manager.sh test              # Test the stack"
+    echo -e "  ./chat-manager.sh logs both         # View all logs"
+    echo -e "  ./chat-manager.sh info              # System information"
+    echo -e "  tail -f logs/llamacpp.log           # llama.cpp server logs"
+    echo -e "  tail -f logs/flask.log              # Flask app logs"
+    echo ""
+    echo -e "${YELLOW}If llama.cpp is not installed:${NC}"
+    echo -e "  1. Run: ./llama_cpp_setup_script.sh"
+    echo -e "  2. Or install manually and update LLAMACPP_BINARY in config"
+    echo -e "  3. Restart services: ./chat-manager.sh restart"
+    echo ""
+    echo -e "${GREEN}Support:${NC} https://github.com/ukkit/llama-chat"
+    echo -e "${GREEN}llama.cpp:${NC} https://github.com/ggerganov/llama.cpp"
+    echo -e "${GREEN}Modular Design:${NC} llama.cpp installed separately for flexibility"
+}
+
+# Function to cleanup on error (POSIX compatible)
+cleanup_on_error() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        print_error "Installation failed with exit code $exit_code. Cleaning up..."
+
+        # Remove temp files
+        rm -f /tmp/chat_ollama_env
+
+        # Auto-cleanup partial installation (non-interactive)
+        if [ -d "$INSTALL_DIR" ] && [ ! -f "$INSTALL_DIR/.git/config" ]; then
+            print_info "Removing partial installation directory..."
+            rm -rf "$INSTALL_DIR"
+            print_info "Partial installation removed"
+        fi
+    fi
+    exit $exit_code
+}
+
+# Set up error handling (POSIX compatible)
+handle_error() {
+    cleanup_on_error
+}
+
+# Main installation function (NON-INTERACTIVE)
+main() {
+    # Clear screen and show header
+    clear
+    print_header
+
+    print_info "Non-interactive llama-chat application installer starting..."
+    print_info "Installation directory: $INSTALL_DIR"
+    print_info "Models directory: $MODELS_DIR"
+    print_info "Flask app port: $DEFAULT_PORT"
+    print_info "llama.cpp port: $LLAMACPP_PORT"
+    print_info "Auto-start: $AUTO_START"
+    print_info "Download model: $AUTO_DOWNLOAD_MODEL"
+    echo ""
+    print_info "This installer focuses on llama-chat application setup"
+    print_info "llama.cpp should be installed separately (use llama_cpp_setup_script.sh)"
+    print_info "Customize with environment variables (see final instructions)"
+    echo ""
+
+    # NO USER CONFIRMATION - just start installation
+    print_info "Starting installation automatically..."
+    echo ""
+
+    # Run installation steps with error handling
+    check_python || handle_error
+    check_llamacpp || handle_error  # Check for existing llama.cpp installation
+    setup_models_directory || handle_error
+    check_install_directory || handle_error
+
+    # Only download if not updating
+    if [ ! -d "$INSTALL_DIR" ]; then
+        download_project || handle_error
+    fi
+
+    cd "$INSTALL_DIR" || handle_error
+    create_virtual_env || handle_error
+    download_models || handle_error
+    create_config_file || handle_error
+    setup_permissions || handle_error
+
+    # Test installation
+    if test_installation; then
+        start_application || handle_error
+        show_final_instructions
+    else
+        print_error "Installation test failed"
+        print_info "You may need to install llama.cpp first:"
+        print_info "  ./llama_cpp_setup_script.sh"
+        print_info "Or troubleshoot manually:"
+        print_info "  ./chat-manager.sh info"
+        handle_error
+    fi
+
+    # Cleanup temp files
+    rm -f /tmp/chat_ollama_env
+}
+
+# Check if running as root (warn but don't prevent)
+if [ "$EUID" -eq 0 ]; then
+    print_warning "Running as root is not recommended"
+    print_info "Consider running as a regular user for better security"
+    echo ""
+fi
+
+# Run main installation
+main "$@"
