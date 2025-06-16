@@ -1,0 +1,26 @@
+{
+  "timeouts": {
+    "llamacpp_timeout": 600,
+    "llamacpp_connect_timeout": 45
+  },
+  "model_options": {
+    "temperature": 0.1,
+    "top_p": 0.95,
+    "top_k": 50,
+    "min_p": 0.01,
+    "num_predict": 4096,
+    "repeat_penalty": 1.15,
+    "stop": ["\n\nHuman:", "\n\nUser:"]
+  },
+  "performance": {
+    "context_history_limit": 15,
+    "num_thread": -1,
+    "use_mlock": true,
+    "use_mmap": true
+  },
+  "system_prompt": "You are Dost, a knowledgeable and thoughtful AI assistant. Take time to provide detailed, accurate, and well-reasoned responses. Consider multiple perspectives and provide comprehensive information when helpful.",
+  "response_optimization": {
+    "stream": false,
+    "keep_alive": "10m"
+  }
+}
