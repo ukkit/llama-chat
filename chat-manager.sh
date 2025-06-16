@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # llama-chat Management Script
-# Enhanced version with configuration file support
+# Enhanced version with configuration file support and auto virtual environment setup
 
 set -e
 
@@ -43,6 +43,10 @@ FLASK_PID_FILE="$INSTALL_DIR/flask.pid"
 # Log files
 LLAMACPP_LOG_FILE="${LLAMACPP_LOG_FILE:-$LOG_DIR/llamacpp.log}"
 FLASK_LOG_FILE="${FLASK_LOG_FILE:-$LOG_DIR/flask.log}"
+
+# Virtual environment and requirements
+VENV_DIR="$INSTALL_DIR/venv"
+REQUIREMENTS_FILE="$INSTALL_DIR/requirements.txt"
 
 # Function to print colored output
 print_success() {
@@ -109,6 +113,170 @@ get_process_status() {
         echo -e "${RED}●${NC} $service_name - ${RED}Not running${NC}"
         return 1
     fi
+}
+
+# Function to create default requirements.txt if it doesn't exist
+create_requirements_file() {
+    if [ ! -f "$REQUIREMENTS_FILE" ]; then
+        print_info "Creating default requirements.txt..."
+        cat > "$REQUIREMENTS_FILE" << 'EOF'
+# Flask web framework
+Flask==2.3.3
+Werkzeug==2.3.7
+
+# HTTP requests
+requests==2.31.0
+
+# CORS support
+flask-cors==4.0.0
+
+# JSON handling
+ujson==5.8.0
+
+# Additional useful packages
+python-dotenv==1.0.0
+gunicorn==21.2.0
+EOF
+        print_success "Created default requirements.txt"
+    fi
+}
+
+# Function to setup virtual environment
+setup_virtual_environment() {
+    print_step "Setting up Python virtual environment..."
+
+    # Check if Python is available
+    local python_cmd=""
+    if command_exists python3; then
+        python_cmd="python3"
+    elif command_exists python; then
+        # Check if it's Python 3
+        if python --version 2>&1 | grep -q "Python 3"; then
+            python_cmd="python"
+        else
+            print_error "Python 3 is required but not found"
+            print_info "Please install Python 3.8 or higher"
+            return 1
+        fi
+    else
+        print_error "Python is not installed or not in PATH"
+        print_info "Please install Python 3.8 or higher"
+        return 1
+    fi
+
+    # Display Python version
+    local python_version=$($python_cmd --version 2>&1)
+    print_info "Using: $python_version"
+
+    # Check if venv module is available
+    if ! $python_cmd -m venv --help >/dev/null 2>&1; then
+        print_error "Python venv module is not available"
+        print_info "On Ubuntu/Debian, install with: sudo apt install python3-venv"
+        print_info "On CentOS/RHEL, install with: sudo yum install python3-venv"
+        return 1
+    fi
+
+    # Create virtual environment
+    print_info "Creating virtual environment at $VENV_DIR..."
+    if $python_cmd -m venv "$VENV_DIR"; then
+        print_success "Virtual environment created successfully"
+    else
+        print_error "Failed to create virtual environment"
+        return 1
+    fi
+
+    # Activate virtual environment and upgrade pip
+    print_info "Activating virtual environment and upgrading pip..."
+    if source "$VENV_DIR/bin/activate" && python -m pip install --upgrade pip; then
+        print_success "Virtual environment activated and pip upgraded"
+    else
+        print_error "Failed to activate virtual environment or upgrade pip"
+        return 1
+    fi
+
+    return 0
+}
+
+# Function to install Python dependencies
+install_python_dependencies() {
+    print_step "Installing Python dependencies..."
+
+    # Ensure requirements.txt exists
+    create_requirements_file
+
+    # Check if virtual environment exists
+    if [ ! -d "$VENV_DIR" ]; then
+        print_warning "Virtual environment not found, creating it..."
+        if ! setup_virtual_environment; then
+            return 1
+        fi
+    fi
+
+    # Activate virtual environment and install requirements
+    print_info "Installing packages from requirements.txt..."
+    if source "$VENV_DIR/bin/activate" && pip install -r "$REQUIREMENTS_FILE"; then
+        print_success "Python dependencies installed successfully"
+        
+        # Show installed packages
+        print_info "Installed packages:"
+        source "$VENV_DIR/bin/activate" && pip list | grep -E "(Flask|requests|flask-cors)" | sed 's/^/  /'
+        
+        return 0
+    else
+        print_error "Failed to install Python dependencies"
+        print_info "Check the requirements.txt file and ensure all package names are correct"
+        return 1
+    fi
+}
+
+# Function to check and setup virtual environment
+check_and_setup_venv() {
+    local setup_needed=false
+
+    # Check if virtual environment exists
+    if [ ! -d "$VENV_DIR" ]; then
+        print_warning "Virtual environment not found at $VENV_DIR"
+        setup_needed=true
+    else
+        # Check if virtual environment is functional
+        if ! source "$VENV_DIR/bin/activate" 2>/dev/null; then
+            print_warning "Virtual environment exists but cannot be activated"
+            setup_needed=true
+        else
+            # Check if required packages are installed
+            if ! source "$VENV_DIR/bin/activate" && python -c "import flask, requests" 2>/dev/null; then
+                print_warning "Virtual environment exists but required packages are missing"
+                if ! install_python_dependencies; then
+                    return 1
+                fi
+            else
+                print_success "Virtual environment is ready"
+            fi
+        fi
+    fi
+
+    # Setup virtual environment if needed
+    if [ "$setup_needed" = true ]; then
+        print_info "Setting up virtual environment automatically..."
+        
+        # Remove corrupted virtual environment if it exists
+        if [ -d "$VENV_DIR" ]; then
+            print_info "Removing corrupted virtual environment..."
+            rm -rf "$VENV_DIR"
+        fi
+        
+        # Create and setup new virtual environment
+        if ! setup_virtual_environment; then
+            return 1
+        fi
+        
+        # Install dependencies
+        if ! install_python_dependencies; then
+            return 1
+        fi
+    fi
+
+    return 0
 }
 
 # Function to find model file
@@ -211,10 +379,16 @@ start_flask() {
         return 1
     fi
 
-    # Check if virtual environment exists
-    if [ ! -d "$INSTALL_DIR/venv" ]; then
-        print_error "Virtual environment not found at $INSTALL_DIR/venv"
-        print_info "Run the installer first or create virtual environment manually"
+    # Check and setup virtual environment
+    if ! check_and_setup_venv; then
+        print_error "Failed to setup virtual environment"
+        return 1
+    fi
+
+    # Check if app.py exists
+    if [ ! -f "$INSTALL_DIR/app.py" ]; then
+        print_error "Flask application file not found: $INSTALL_DIR/app.py"
+        print_info "Make sure app.py is in the same directory as this script"
         return 1
     fi
 
@@ -315,6 +489,21 @@ show_status() {
     echo "GPU Layers:        $GPU_LAYERS"
     echo "Context Size:      $CONTEXT_SIZE"
     echo "Threads:           $THREADS"
+
+    echo ""
+    echo "Virtual Environment:"
+    echo "==================="
+    if [ -d "$VENV_DIR" ]; then
+        if source "$VENV_DIR/bin/activate" && python -c "import flask, requests" 2>/dev/null; then
+            echo "Status: Ready"
+            local python_version=$(source "$VENV_DIR/bin/activate" && python --version 2>&1)
+            echo "Python: $python_version"
+        else
+            echo "Status: Needs setup (run '$0 setup-venv' to fix)"
+        fi
+    else
+        echo "Status: Not found (will be created automatically when needed)"
+    fi
 
     echo ""
     echo "Models:"
@@ -520,6 +709,27 @@ follow_logs() {
     esac
 }
 
+# Function to setup virtual environment manually
+setup_venv_command() {
+    print_header
+    print_step "Setting up virtual environment and Python dependencies..."
+    
+    if check_and_setup_venv; then
+        print_success "Virtual environment setup completed successfully!"
+        echo ""
+        echo "Virtual environment details:"
+        echo "Location: $VENV_DIR"
+        echo "Python: $(source "$VENV_DIR/bin/activate" && python --version 2>&1)"
+        echo "Packages: $(source "$VENV_DIR/bin/activate" && pip list | wc -l) installed"
+        echo ""
+        echo "To manually activate the virtual environment:"
+        echo "  source $VENV_DIR/bin/activate"
+    else
+        print_error "Failed to setup virtual environment"
+        return 1
+    fi
+}
+
 # Function to test installation
 test_installation() {
     print_header
@@ -549,19 +759,14 @@ test_installation() {
 
     # Test 3: Check virtual environment
     print_step "Checking virtual environment..."
-    if [ -d "$INSTALL_DIR/venv" ]; then
-        print_success "Virtual environment found"
-
-        # Test Python dependencies
-        if source "$INSTALL_DIR/venv/bin/activate" && python -c "import flask, requests" 2>/dev/null; then
-            print_success "Python dependencies available"
+    if [ -d "$VENV_DIR" ]; then
+        if source "$VENV_DIR/bin/activate" && python -c "import flask, requests" 2>/dev/null; then
+            print_success "Virtual environment ready with required packages"
         else
-            print_error "Python dependencies missing"
-            errors=$((errors + 1))
+            print_warning "Virtual environment needs setup (run '$0 setup-venv')"
         fi
     else
-        print_error "Virtual environment not found"
-        errors=$((errors + 1))
+        print_warning "Virtual environment not found (will be created automatically)"
     fi
 
     # Test 4: Check llama-server
@@ -596,16 +801,25 @@ test_installation() {
         print_success "Flask port $FLASK_PORT is available"
     fi
 
+    # Test 7: Check Flask app
+    print_step "Checking Flask application..."
+    if [ -f "$INSTALL_DIR/app.py" ]; then
+        print_success "Flask application found: app.py"
+    else
+        print_warning "Flask application not found: app.py"
+    fi
+
     echo ""
     if [ $errors -eq 0 ]; then
-        print_success "All tests passed! Installation looks good."
+        print_success "All critical tests passed! Installation looks good."
         echo ""
         echo "Next steps:"
         echo "  • Start services: $0 start"
         echo "  • Check status: $0 status"
+        echo "  • Setup virtual environment: $0 setup-venv"
         echo "  • Download models: $0 download-model <url> <filename>"
     else
-        print_error "Found $errors error(s). Please fix them before using llama-chat."
+        print_error "Found $errors critical error(s). Please fix them before using llama-chat."
     fi
 }
 
@@ -710,6 +924,78 @@ show_info() {
     echo "Batch Size: $BATCH_SIZE"
 }
 
+# Function to clean up installation
+cleanup() {
+    print_header
+    print_step "Cleaning up llama-chat installation..."
+    
+    # Stop services first
+    stop_service "$FLASK_PID_FILE" "Flask app"
+    stop_service "$LLAMACPP_PID_FILE" "llama-server"
+    
+    # Ask for confirmation
+    echo ""
+    print_warning "This will remove:"
+    echo "  • Virtual environment: $VENV_DIR"
+    echo "  • Log files: $LOG_DIR"
+    echo "  • PID files"
+    echo ""
+    print_info "Models and configuration will be preserved"
+    echo ""
+    read -p "Are you sure? (y/N): " -r
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        print_info "Cleanup cancelled"
+        return 0
+    fi
+    
+    # Remove virtual environment
+    if [ -d "$VENV_DIR" ]; then
+        print_info "Removing virtual environment..."
+        rm -rf "$VENV_DIR"
+        print_success "Virtual environment removed"
+    fi
+    
+    # Remove log files
+    if [ -d "$LOG_DIR" ]; then
+        print_info "Removing log files..."
+        rm -rf "$LOG_DIR"
+        print_success "Log files removed"
+    fi
+    
+    # Remove PID files
+    rm -f "$LLAMACPP_PID_FILE" "$FLASK_PID_FILE"
+    print_success "PID files removed"
+    
+    print_success "Cleanup completed!"
+}
+
+# Function to update requirements
+update_requirements() {
+    print_step "Updating Python requirements..."
+    
+    if [ ! -d "$VENV_DIR" ]; then
+        print_error "Virtual environment not found. Run '$0 setup-venv' first"
+        return 1
+    fi
+    
+    if [ ! -f "$REQUIREMENTS_FILE" ]; then
+        print_warning "Requirements file not found, creating default..."
+        create_requirements_file
+    fi
+    
+    print_info "Upgrading pip and installing/upgrading requirements..."
+    if source "$VENV_DIR/bin/activate" && pip install --upgrade pip && pip install --upgrade -r "$REQUIREMENTS_FILE"; then
+        print_success "Requirements updated successfully"
+        
+        # Show updated packages
+        print_info "Updated packages:"
+        source "$VENV_DIR/bin/activate" && pip list --format=columns | head -n 20
+    else
+        print_error "Failed to update requirements"
+        return 1
+    fi
+}
+
 # Function to show help
 show_help() {
     print_header
@@ -729,6 +1015,9 @@ show_help() {
     echo "  stop-llamacpp         Stop only llama.cpp server"
     echo "  stop-flask            Stop only Flask application"
     echo ""
+    echo "  setup-venv            Setup virtual environment and install Python dependencies"
+    echo "  update-requirements   Update Python packages in virtual environment"
+    echo ""
     echo "  download-model <url> <filename>  Download a model file"
     echo "  list-models           List downloaded models"
     echo ""
@@ -741,16 +1030,23 @@ show_help() {
     echo ""
     echo "  test                  Test installation"
     echo "  info                  Show system information"
+    echo "  cleanup               Clean up installation (keeps models and config)"
     echo "  help                  Show this help message"
     echo ""
     echo "EXAMPLES:"
     echo "  $0 start              # Start all services"
     echo "  $0 status             # Check what's running"
+    echo "  $0 setup-venv         # Setup Python virtual environment"
     echo "  $0 logs llamacpp 100  # Show last 100 lines of llama.cpp logs"
     echo "  $0 follow flask       # Follow Flask logs"
     echo "  $0 download-model \\"
     echo "    'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf' \\"
     echo "    'qwen2.5-0.5b-instruct-q4_0.gguf'"
+    echo ""
+    echo "VIRTUAL ENVIRONMENT:"
+    echo "  The script automatically creates and manages a Python virtual environment."
+    echo "  If the virtual environment is missing or corrupted, it will be recreated"
+    echo "  automatically when starting Flask or you can run '$0 setup-venv' manually."
     echo ""
     echo "CONFIGURATION:"
     echo "  Edit $CONFIG_FILE to customize settings"
@@ -792,6 +1088,12 @@ main() {
         "status")
             show_status
             ;;
+        "setup-venv"|"setup-env"|"venv")
+            setup_venv_command
+            ;;
+        "update-requirements"|"update-deps"|"upgrade")
+            update_requirements
+            ;;
         "download-model")
             download_model "$2" "$3"
             ;;
@@ -809,6 +1111,9 @@ main() {
             ;;
         "info")
             show_info
+            ;;
+        "cleanup"|"clean")
+            cleanup
             ;;
         "help"|"--help"|"-h")
             show_help
