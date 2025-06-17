@@ -9,17 +9,43 @@ A modern web interface for llama.cpp with markdown rendering, syntax highlightin
 ## ✨ Features
 
 - 🤖 **llama.cpp Integration** - Direct integration with llama.cpp server for optimal performance
+- 🔄 **Dynamic Model Switching** - Switch between models without restarting services
 - 💬 **Multiple Conversations** - Create, manage, and rename chat sessions
 - 📚 **Persistent History** - SQLite database storage with search functionality
 - 🚀 **Lightweight** - Minimal resource usage, runs on CPU-only systems
 - 📝 **Full Markdown Rendering** - GitHub-flavored syntax with code highlighting
-- 💻 **190+ Language Support** - Syntax highlighting for all major programming languages
 - ⚡ **Performance Metrics** - Real-time response times, token tracking, and speed analytics
-- 🔍 **Smart Search** - Full-text search across conversations and messages
-- 📋 **Enhanced Copy Features** - Copy entire messages or individual code blocks
-- 🎨 **Professional UI** - Dark theme with VS Code-inspired design
+- 🏥 **Health Monitoring** - Automatic service monitoring and restart capabilities
 
-## 🚀 30-Second Quick Start
+## 🚀 Quick Start
+
+### Prerequisites
+
+⚠️ Before installing llama-chat, you need to have **llama.cpp** installed on your system ⚠️
+
+**Install llama.cpp:**
+```bash
+# Option 1: Build from source (recommended)
+git clone https://github.com/ggml-org/llama.cpp
+cd llama.cpp
+cmake -B build
+cmake --build build --config Release
+
+# Option 2: Build via llama_cpp_setup.sh
+curl -fsSL https://github.com/ukkit/llama-chat/raw/main/llama_cpp_setup.sh | bash
+
+# Option 3: Install via package manager (if available)
+# Ubuntu/Debian:
+# apt install llama.cpp
+
+# macOS:
+# brew install llama.cpp
+
+# Make sure llama-server is in your PATH
+which llama-server  # Should show the path to llama-server
+```
+
+## 30-Second Quick Start
 
 **For most users (auto-install):**
 
@@ -27,26 +53,34 @@ A modern web interface for llama.cpp with markdown rendering, syntax highlightin
 curl -fsSL https://github.com/ukkit/llama-chat/raw/main/install.sh | bash
 ```
 
-What happens?
-- Installs Python/llama.cpp if missing
-- Downloads recommended model (~400MB)
-- Installs llama-chat with Flask frontend
-- Starts both llama.cpp server and web interface
+What the install script does:
+- ✅ Sets up Python virtual environment
+- ✅ Downloads recommended model (~400MB)
+- ✅ Installs llama-chat with Flask frontend
+- ✅ Creates configuration files
+- ✅ Starts both llama.cpp server and web interface
 
 **Access at:** `http://localhost:3333`
 
 <details>
-<summary><b>🔧 Advanced Setup (Manual Install)</b></summary>
+<summary><b>🔧 Manual Installation</b></summary>
 
-For detailed manual installation steps, see **[docs/install.md](./docs/install.md)**
+For detailed manual installation steps:
 
 ```bash
-# Prerequisites: Python 3.8+, llama.cpp, and at least one .gguf model
+# Prerequisites: Python 3.8+, llama.cpp installed, and at least one .gguf model
 git clone https://github.com/ukkit/llama-chat.git
 cd llama-chat
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
+# Download a model (optional - you can add your own)
+./chat-manager.sh download-model \
+  "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf" \
+  "qwen2.5-0.5b-instruct-q4_0.gguf"
+
+# Start services
 ./chat-manager.sh start
 ```
 
@@ -71,119 +105,30 @@ pip install -r requirements.txt
 
 </details>
 
-## 🏗️ Architecture
-
-llama-chat uses a two-process architecture optimized for performance and reliability:
-
-```
-┌─────────────────┐    HTTP/REST API    ┌──────────────────┐
-│   Flask Web UI  │ ←─────────────────→ │  llama.cpp       │
-│   (Port 3333)   │                     │  Server          │
-│                 │                     │  (Port 8120)     │
-│   • Chat UI     │                     │  • Model Loading │
-│   • Markdown    │                     │  • Text Gen      │
-│   • Database    │                     │  • OpenAI API    │
-│   • Search      │                     │  • Performance   │
-└─────────────────┘                     └──────────────────┘
-        │                                        │
-        ├─ SQLite Database                      ├─ .gguf Models
-        └─ Conversation History                 └─ CUDA/CPU Backend
-```
-
-### Key Components
-
-- **Frontend**: Modern HTML5/CSS3/JavaScript with marked.js and highlight.js
-- **Backend**: Flask REST API with SQLite database
-- **AI Engine**: llama.cpp server with OpenAI-compatible API
-- **Models**: Standard .gguf format models from Hugging Face
-
-## 📊 Performance & Requirements
-
-### System Requirements
-
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| **CPU** | Dual-core 2GHz | Quad-core 3GHz+ |
-| **RAM** | 4GB | 8GB+ |
-| **Storage** | 2GB free | 10GB+ for multiple models |
-| **OS** | Linux, macOS, Windows (WSL2) | Linux/macOS |
-| **Python** | 3.8+ | 3.11+ |
-
-### Model Performance (CPU-only)
-
-| Model | Size | RAM Usage | Speed (CPU) | Quality |
-|-------|------|-----------|-------------|---------|
-| qwen2.5-0.5b-instruct | ~400MB | ~1GB | 15-30 tok/s | Good |
-| phi3-mini-4k-instruct | ~2.3GB | ~3GB | 8-15 tok/s | Excellent |
-| llama3.2-1b-instruct | ~1.3GB | ~2GB | 10-20 tok/s | Very Good |
-| tinyllama | ~637MB | ~1GB | 20-40 tok/s | Basic |
-
-*Performance varies by hardware. GPU acceleration available with CUDA/Metal.*
-
-## 🛠️ Configuration
-
-### Quick Configuration
-
-llama-chat is designed to work out-of-the-box, but you can customize behavior via configuration files:
-
-**Basic config.json:**
-```json
-{
-  "model_options": {
-    "temperature": 0.5,
-    "num_predict": 2048,
-    "num_ctx": 4096
-  },
-  "performance": {
-    "context_history_limit": 10
-  },
-  "system_prompt": "You are a helpful AI assistant."
-}
-```
-
-**Environment variables:**
-```bash
-export LLAMACPP_PORT=8120          # llama.cpp server port
-export FLASK_PORT=3333             # Web interface port
-export MODELS_DIR=./models         # Model directory
-export GPU_LAYERS=32               # GPU acceleration (0 = CPU only)
-```
-
 ### Configuration Files
 
 | File | Purpose |
 |------|---------|
+| `cm.conf` | Main chat-manager configuration (ports, performance, model settings) |
 | `config.json` | Model parameters, timeouts, system prompt |
-| `llama-chat.conf` | Server settings, ports, paths |
-| Environment variables | Runtime overrides |
+| `docks/detailed_cm.conf` | Config file with more configuration options for llama-chat and llama.cpp server |
 
 See **[docs/config.md](./docs/config.md)** for complete configuration options.
 
-## 🔧 Management Commands
+## 🔧 Enhanced Management Commands
 
-llama-chat includes a comprehensive management script:
+llama-chat includes a comprehensive management script with enhanced features:
 
+### Core Operations
 ```bash
 # Basic operations
-./chat-manager.sh start              # Start both servers
-./chat-manager.sh stop               # Stop both servers
-./chat-manager.sh restart            # Restart both servers
-./chat-manager.sh status             # Show service status
-
-# Individual services
-./chat-manager.sh start-llamacpp     # Start only llama.cpp server
-./chat-manager.sh start-flask        # Start only Flask app
-
-# Model management
-./chat-manager.sh download-model <url> <filename>
-./chat-manager.sh list-models        # Show available models
-
-# Monitoring and troubleshooting
-./chat-manager.sh logs               # View recent logs
-./chat-manager.sh follow llamacpp    # Follow llama.cpp logs
-./chat-manager.sh test               # Test installation
-./chat-manager.sh info               # System information
+./chat-manager.sh start              # Start all services (llama.cpp + Flask + monitor)
+./chat-manager.sh stop               # Stop all services
+./chat-manager.sh restart            # Restart all services
+./chat-manager.sh status             # Show detailed service status and health
 ```
+
+See **[docs/chat-manager.md](./docs/chat-manager.md)** for detailed operations
 
 ## 🤖 Supported Models
 
@@ -192,15 +137,17 @@ llama-chat works with any .gguf format model. Here are some popular options:
 ### Recommended Starter Models
 
 ```bash
-# Fast, lightweight (400MB)
+# Fast, lightweight (400MB) - Great for testing
 ./chat-manager.sh download-model \
   "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_0.gguf" \
   "qwen2.5-0.5b-instruct-q4_0.gguf"
+```
 
-# High quality, balanced (2.3GB)
+```bash
+# Compact, good performance (1.3GB)
 ./chat-manager.sh download-model \
-  "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf" \
-  "phi3-mini-4k-instruct-q4.gguf"
+  "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf" \
+  "llama3.2-1b-instruct-q4.gguf"
 ```
 
 ### Model Categories
@@ -210,111 +157,54 @@ llama-chat works with any .gguf format model. Here are some popular options:
 - **High-quality**: llama3.1:8b, qwen2.5:7b (when you have RAM)
 - **Specialized**: codellama, mistral-nemo (coding, specific tasks)
 
-See **[docs/models.md](./docs/models.md)** for complete model guide.
+### Dynamic Model Switching
 
-## 🎯 Use Cases
-
-### 👩‍💻 **Development & Programming**
-- **AI-assisted coding** with syntax-highlighted examples
-- **Code documentation** with markdown formatting
-- **API documentation** with structured formatting
-- **Technical tutorials** with copy-paste code blocks
-
-### 📚 **Research & Learning**
-- **Interactive learning** with formatted educational content
-- **Technical explanations** with mathematical notation
-- **Study guides** with organized information hierarchy
-- **Knowledge base building** with searchable conversations
-
-### 💼 **Business & Content**
-- **Technical documentation** with professional formatting
-- **Meeting notes** with structured layouts
-- **Process documentation** with clear formatting
-- **Training materials** with rich content presentation
-
-## 🔍 API & Integration
-
-llama-chat provides a complete REST API for integration:
-
-### Key Endpoints
+Switch between models without restarting services:
 
 ```bash
-# Get available models
-GET /api/models
+# Switch to a different model
+./chat-manager.sh switch-model phi3-mini-4k-instruct-q4.gguf
 
-# Create conversation
-POST /api/conversations
-{"title": "New Chat", "model": "qwen2.5:0.5b"}
+# Check current model
+./chat-manager.sh status
 
-# Send message with performance metrics
-POST /api/chat
-{
-  "conversation_id": 1,
-  "message": "Hello",
-  "model": "qwen2.5:0.5b"
-}
-
-# Response includes performance data:
-{
-  "response": "Hello! How can I help you?",
-  "response_time_ms": 1250,
-  "estimated_tokens": 12,
-  "metrics": {...}
-}
-
-# Search conversations
-GET /api/search?q=python
-
-# Get conversation statistics
-GET /api/stats/1
+# List available models
+./chat-manager.sh list-models
 ```
 
-See **[docs/api.md](./docs/api.md)** for complete API documentation with examples.
-
-## 🛡️ Privacy & Security
-
-- **100% Local**: All processing happens on your machine
-- **No Internet Required**: After initial setup, works completely offline
-- **No Data Collection**: No telemetry, analytics, or data sharing
-- **Private Conversations**: All chat history stored locally in SQLite
-- **Open Source**: Full transparency, audit the code yourself
-
-## 🔧 Troubleshooting
-
-### Quick Fixes
+## 🔧 Need Help
 
 | Issue | Solution |
 |-------|----------|
-| Port in use | `./chat-manager.sh start 8120` |
-| No models | `./chat-manager.sh download-model <url> <file>` |
-| Process stuck | `./chat-manager.sh force-stop` |
-| Slow responses | Use smaller model or speed config |
-| Memory issues | Reduce context size in config |
+| **llama.cpp not found** | Install llama.cpp and ensure `llama-server` is in PATH |
+| **Port in use** | `./chat-manager.sh force-cleanup` |
+| **No models** | `./chat-manager.sh download-model <url> <file>` |
+| **Process stuck** | `./chat-manager.sh force-cleanup` |
+| **Slow responses** | Use smaller model or adjust GPU_LAYERS |
+| **Memory issues** | Reduce context size in cm.conf |
+| **Model switching fails** | Check model file exists: `./chat-manager.sh list-models` |
+| **Services won't start** | Check health: `./chat-manager.sh test` |
 
-### Debug Mode
 
-```bash
-# Enable debug logging
-DEBUG=true ./chat-manager.sh start
+### Common Installation Issues
 
-# View detailed logs
-./chat-manager.sh logs both
-
-# Test system health
-./chat-manager.sh test
-```
+| Problem | Cause | Solution |
+|---------|-------|---------|
+| **llama-server not found** | llama.cpp not installed | Install llama.cpp from source or package manager |
+| **Permission denied** | Executable permissions missing | `chmod +x chat-manager.sh` |
+| **Port conflicts** | Services already running | `./chat-manager.sh force-cleanup` |
+| **Python module errors** | Virtual environment issues | Re-run setup: `./chat-manager.sh setup-venv` |
+| **Model loading fails** | Corrupted or wrong format | Re-download model |
 
 See **[docs/troubleshooting.md](./docs/troubleshooting.md)** for comprehensive troubleshooting.
 
 ## ✔️ Tested Platforms
 
-| Platform | CPU | RAM | Status | Notes |
-|----------|-----|-----|--------|-------|
-| **Ubuntu 20.04+** | Any x86_64 | 4GB+ | ✅ Excellent | Primary development platform |
-| **macOS 11+** | Intel/Apple Silicon | 8GB+ | ✅ Excellent | Native Metal acceleration |
-| **Windows 11** | x86_64 | 8GB+ | ✅ Good | Via WSL2 recommended |
-| **Raspberry Pi 4** | ARM Cortex-A72 | 8GB | ✅ Good | Use lightweight models |
-| **Debian 11+** | x86_64 | 4GB+ | ✅ Excellent | Server deployments |
+| Platform | CPU | RAM | llama.cpp | Status | Notes |
+|----------|-----|-----|-----------|--------|-------|
+| **Ubuntu 20.04+** | x86_64 | 8GB+ | Source/Package | ✅ Excellent | Primary development platform |
+| **Windows 11** | x86_64 | 8GB+ | WSL2/Source | ✅ Good | WSL2 recommended |
+| **Debian 12+** | x86_64 | 8GB+ | Source/Package | ✅ Excellent | Server deployments |
 
 ## 📚 Documentation
 
@@ -324,60 +214,8 @@ See **[docs/troubleshooting.md](./docs/troubleshooting.md)** for comprehensive t
 | [Configuration Guide](./docs/config.md) | Detailed configuration options |
 | [API Documentation](./docs/api.md) | REST API reference with examples |
 | [Troubleshooting](./docs/troubleshooting.md) | Common issues and solutions |
-| [Management Script](./docs/chat_manager_docs.md) | chat-manager.sh documentation |
-| [Model Guide](./docs/models.md) | Model recommendations and setup |
-
-## 🆕 Recent Updates
-
-### **v2.0 - llama.cpp Integration**
-- ✅ **Native llama.cpp support** with direct server integration
-- ✅ **OpenAI-compatible API** for seamless model interaction
-- ✅ **Performance metrics** tracking response times and token speeds
-- ✅ **Enhanced model management** with automatic .gguf detection
-- ✅ **Improved installation** with automatic dependency management
-- ✅ **Better resource management** with optimized memory usage
-
-### **v1.5 - Enhanced Features**
-- ✅ **Full markdown rendering** with GitHub-flavored syntax
-- ✅ **Syntax highlighting** for 190+ programming languages
-- ✅ **Enhanced copy functionality** with code block copying
-- ✅ **Search improvements** with performance metrics in results
-- ✅ **Mobile optimization** for responsive design
-
-## 🤝 Contributing
-
-We welcome contributions! Here's how to get started:
-
-1. **Fork the repository**
-2. **Create a feature branch**: `git checkout -b feature/awesome-feature`
-3. **Make your changes** and test thoroughly
-4. **Commit with clear messages**: `git commit -m "Add awesome feature"`
-5. **Push to your fork**: `git push origin feature/awesome-feature`
-6. **Create a Pull Request**
-
-### Development Setup
-
-```bash
-git clone https://github.com/ukkit/llama-chat.git
-cd llama-chat
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-./chat-manager.sh start
-```
-
-### Areas for Contribution
-
-- 🔧 **Performance optimizations**
-- 🎨 **UI/UX improvements**
-- 📚 **Documentation enhancements**
-- 🐛 **Bug fixes and testing**
-- 🌍 **Internationalization**
-- 📱 **Mobile app development**
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+| [Management Script](./docs/chat-manager.md) | chat-manager.sh documentation |
+| [Models](./docs/models.md) | Model recommendations and setup |
 
 ## 🙏 Acknowledgments
 
@@ -387,22 +225,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **[highlight.js](https://highlightjs.org/)** - Syntax highlighting
 - **[Hugging Face](https://huggingface.co/)** - Model hosting and community
 
-## 🌟 Support the Project
+**Made with ❤️ for the AI community**
 
-If you find llama-chat helpful:
-- ⭐ **Star this repository**
-- 🐛 **Report bugs** and suggest features
-- 📖 **Improve documentation**
-- 🔄 **Share with the community**
-
-**Made with ❤️ for the local AI community**
+> ⭐ Star this project if you find it helpful!
 
 ---
 
-**Ready to start chatting?**
-
-```bash
-curl -fsSL https://github.com/ukkit/llama-chat/raw/main/install.sh | bash
-```
-
-Then open [http://localhost:3333](http://localhost:3333) and start your first conversation! 🦙
+MIT License - see [LICENSE](LICENSE) file.
