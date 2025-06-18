@@ -448,7 +448,7 @@ async function loadConversations() {
         });
 
         console.log(`Loaded ${data.conversations.length} conversations`);
-        
+
     } catch (error) {
         console.error('Error loading conversations:', error);
         showNotification('Failed to load conversations', 'error');
@@ -459,7 +459,7 @@ async function loadConversations() {
 async function createNewChat() {
     try {
         console.log('Creating new chat...');
-        
+
         // Get selected model for enhanced backend
         const selectedModel = document.getElementById('modelSelect').value;
         console.log('Selected model:', selectedModel);
@@ -516,7 +516,7 @@ async function createNewChat() {
 
         // Reload conversations list
         await loadConversations();
-        
+
         // Load the new conversation
         await loadConversation(data.conversation_id);
 
@@ -530,7 +530,7 @@ async function createNewChat() {
 async function loadConversation(conversationId) {
     try {
         console.log('Loading conversation ID:', conversationId);
-        
+
         if (!conversationId) {
             throw new Error('No conversation ID provided');
         }
@@ -738,7 +738,9 @@ function addMessageToChat(role, content, model = null, timestamp = null, respons
         }
     }
 
-    let statsString = '';
+    // Combine stats and time/model into single line
+    let combinedMeta = `<span class="meta-time">${time}${modelInfo}</span>`;
+
     if (role === 'assistant' && (responseTime || tokens)) {
         const stats = [];
         if (responseTime) {
@@ -752,7 +754,7 @@ function addMessageToChat(role, content, model = null, timestamp = null, respons
             }
         }
         if (stats.length > 0) {
-            statsString = `<div class="message-stats">${stats.join(' • ')}</div>`;
+            combinedMeta += ` • <span class="meta-stats">${stats.join(' • ')}</span>`;
         }
     }
 
@@ -773,8 +775,7 @@ function addMessageToChat(role, content, model = null, timestamp = null, respons
     messageDiv.innerHTML = `
         <div class="message-content">
             ${contentHtml}
-            <div class="message-meta">${time}${modelInfo}</div>
-            ${statsString}
+            <div class="message-meta">${combinedMeta}</div>
             <button class="copy-btn" onclick="copyMessage(this)" title="Copy message">📋</button>
         </div>
     `;
@@ -1056,7 +1057,7 @@ async function deleteConversation(conversationId) {
 
         await loadConversations();
         showNotification('Conversation deleted successfully', 'success');
-        
+
     } catch (error) {
         console.error('Error deleting conversation:', error);
         showNotification('Failed to delete conversation', 'error');
@@ -1074,11 +1075,11 @@ async function searchConversations(event) {
 
     try {
         const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const data = await response.json();
 
         resultsDiv.innerHTML = '';

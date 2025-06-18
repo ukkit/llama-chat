@@ -19,20 +19,23 @@ A modern web interface for llama.cpp with markdown rendering, syntax highlightin
 
 ## 🚀 Quick Start
 
-### Prerequisites
+## Prerequisites
 
 ⚠️ Before installing llama-chat, you need to have **llama.cpp** installed on your system ⚠️
 
 **Install llama.cpp:**
 ```bash
-# Option 1: Build from source (recommended)
+# Option 1: Build via llama_cpp_setup.sh ((recommended)
+curl -fsSL https://github.com/ukkit/llama-chat/raw/main/llama_cpp_setup.sh | bash
+```
+<details><summary><b>Other installation options</b></summary>
+
+```bash
+# Option 2:Build from source
 git clone https://github.com/ggml-org/llama.cpp
 cd llama.cpp
 cmake -B build
 cmake --build build --config Release
-
-# Option 2: Build via llama_cpp_setup.sh
-curl -fsSL https://github.com/ukkit/llama-chat/raw/main/llama_cpp_setup.sh | bash
 
 # Option 3: Install via package manager (if available)
 # Ubuntu/Debian:
@@ -40,8 +43,13 @@ curl -fsSL https://github.com/ukkit/llama-chat/raw/main/llama_cpp_setup.sh | bas
 
 # macOS:
 # brew install llama.cpp
+```
+</details>
 
-# Make sure llama-server is in your PATH
+
+**⚠️ Make sure llama-server is in your PATH ⚠️**
+
+```bash
 which llama-server  # Should show the path to llama-server
 ```
 
@@ -91,17 +99,26 @@ pip install -r requirements.txt
 <details>
 <summary><b>📷 App Screenshots</b></summary>
 
-![llama-chat - Main Interface](./docs/assets/main-interface.png)
-*Main chat interface with conversation management*
+![llama-chat - Main Interface](./docs/assets/main_interface.png)
+*Main interface*
 
-![llama-chat - Code Highlighting](./docs/assets/code-highlighting.png)
-*Syntax highlighting with copy buttons for code blocks*
+![llama-chat - Chat Interface](./docs/assets/chat_interface.png)
+*Chat Interface*
 
-![llama-chat - Performance Metrics](./docs/assets/performance-metrics.png)
-*Real-time performance tracking with token/second metrics*
+![llama-chat - Model Selection](./docs/assets/model_selection.png)
+*Select Models from Dropdown*
 
-![llama-chat - Search Feature](./docs/assets/search-feature.png)
-*Full-text search across all conversations*
+![llama-chat - Switch Model](./docs/assets/switching_models.png)
+*Model Switch*
+
+![llama-chat - Switch Model via Chat Selection](./docs/assets/switch_via_chat_selection.png)
+*Switch Model by Selecting existin Chat*
+
+![llama-chat - Model Switched](./docs/assets/model_switched.png)
+*Model Switching complete*
+
+![llama-chat - Markdown Support](./docs/assets/markdown_support.png)
+*Full Markdown rendering*
 
 </details>
 
@@ -111,7 +128,7 @@ pip install -r requirements.txt
 |------|---------|
 | `cm.conf` | Main chat-manager configuration (ports, performance, model settings) |
 | `config.json` | Model parameters, timeouts, system prompt |
-| `docks/detailed_cm.conf` | Config file with more configuration options for llama-chat and llama.cpp server |
+| `docs/detailed_cm.conf` | Config file with more configuration options for llama-chat and llama.cpp server |
 
 See **[docs/config.md](./docs/config.md)** for complete configuration options.
 

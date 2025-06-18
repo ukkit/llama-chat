@@ -9,7 +9,7 @@ echo "🦙 Setting up llama.cpp for testing environment (using CMake)..."
 
 # Configuration
 LLAMA_CPP_DIR="$HOME/llama.cpp"
-MODELS_DIR="$HOME/llama-chat/models"
+MODELS_DIR="$LLAMA_CPP_DIR/models"
 SERVER_PORT=8120
 SERVER_HOST="0.0.0.0"
 BUILD_DIR="$LLAMA_CPP_DIR/build"
@@ -28,9 +28,19 @@ check_server_running() {
 check_cpu_features() {
     echo "🔍 Checking CPU features..."
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        if command_exists lscpu; then
+        # Use /proc/cpuinfo as primary source (works on all Linux including Raspberry Pi)
+        if [[ -f "/proc/cpuinfo" ]]; then
             echo "CPU info:"
-            lscpu | grep -E "(Model name|Flags)" || true
+            # Try lscpu first, fall back to /proc/cpuinfo parsing
+            if command_exists lscpu; then
+                lscpu | grep -E "(Model name|Flags)" 2>/dev/null || {
+                    echo "lscpu limited, using /proc/cpuinfo..."
+                    grep -E "(model name|processor|Features)" /proc/cpuinfo | head -3 || true
+                }
+            else
+                echo "lscpu not available, using /proc/cpuinfo..."
+                grep -E "(model name|processor|Features)" /proc/cpuinfo | head -3 || true
+            fi
 
             # Check for specific instruction sets
             if grep -q "avx2" /proc/cpuinfo; then
@@ -64,8 +74,97 @@ check_cpu_features() {
     fi
 }
 
-# Create models directory
-mkdir -p "$MODELS_DIR"
+# Function to add llama-server to PATH based on current shell
+add_llama_to_path() {
+    local llama_bin_dir="$HOME/llama.cpp/build/bin"
+    local path_export="export PATH=\"$HOME/llama.cpp/build/bin:\$PATH\""
+
+    echo "🔍 Detecting current shell..."
+
+    # Get the current shell
+    local current_shell=$(basename "$SHELL")
+    local config_file=""
+
+    case "$current_shell" in
+        "bash")
+            config_file="$HOME/.bashrc"
+            echo "✅ Bash shell detected"
+            ;;
+        "zsh")
+            config_file="$HOME/.zshrc"
+            echo "✅ Zsh shell detected"
+            ;;
+        *)
+            echo "⚠️  Unknown shell: $current_shell"
+            echo "Defaulting to .bashrc"
+            config_file="$HOME/.bashrc"
+            ;;
+    esac
+
+    echo "📝 Using config file: $config_file"
+
+    # Check if llama-server binary exists
+    if [[ ! -f "$llama_bin_dir/llama-server" ]]; then
+        echo "❌ llama-server binary not found at $llama_bin_dir/llama-server"
+        echo "Please run the llama.cpp setup script first."
+        return 1
+    fi
+
+    # Check if PATH export already exists in the config file
+    if [[ -f "$config_file" ]] && grep -q "llama.cpp/build/bin" "$config_file"; then
+        echo "✅ llama.cpp/build/bin already in PATH configuration"
+        echo "Checking if it's in current PATH..."
+
+        if echo "$PATH" | grep -q "llama.cpp/build/bin"; then
+            echo "✅ Already in current PATH"
+            return 0
+        else
+            echo "⚠️  In config but not current PATH, reloading..."
+        fi
+    else
+        echo "➕ Adding llama.cpp/build/bin to PATH..."
+
+        # Create config file if it doesn't exist
+        if [[ ! -f "$config_file" ]]; then
+            touch "$config_file"
+            echo "📝 Created $config_file"
+        fi
+
+        # Add PATH export to config file
+        echo "" >> "$config_file"
+        echo "# Added by llama.cpp setup" >> "$config_file"
+        echo "$path_export" >> "$config_file"
+        echo "✅ Added PATH export to $config_file"
+    fi
+
+    # Reload the configuration
+    echo "🔄 Reloading shell configuration..."
+
+    # Source the config file
+    if source "$config_file" 2>/dev/null; then
+        echo "✅ Successfully reloaded $config_file"
+    else
+        echo "⚠️  Warning: Failed to reload $config_file"
+        echo "You may need to restart your terminal or run: source $config_file"
+        return 1
+    fi
+
+    # Verify llama-server is now accessible
+    if command -v llama-server >/dev/null 2>&1; then
+        echo "🎉 llama-server is now available in PATH!"
+        echo "📍 Location: $(which llama-server)"
+        echo "🚀 You can now run: llama-server --help"
+    else
+        echo "❌ llama-server still not found in PATH"
+        echo "💡 Try running: source $config_file"
+        echo "💡 Or restart your terminal"
+        return 1
+    fi
+
+    return 0
+}
+
+
 
 # Check CPU features first
 check_cpu_features
@@ -134,7 +233,7 @@ echo "✅ CMake $CMAKE_VERSION installed"
 # Clone llama.cpp if not exists
 if [[ ! -d "$LLAMA_CPP_DIR" ]]; then
     echo "📥 Cloning llama.cpp repository..."
-    git clone https://github.com/ggerganov/llama.cpp.git "$LLAMA_CPP_DIR"
+    git clone https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_DIR"
 else
     echo "✅ llama.cpp directory already exists"
     cd "$LLAMA_CPP_DIR"
@@ -238,14 +337,15 @@ echo "✅ Build successful - llama-server found at $SERVER_BINARY"
 # Make server binary executable
 chmod +x "$SERVER_BINARY"
 
+# Create models directory
+mkdir -p "$MODELS_DIR"
+
 # Download test models
 echo "📥 Downloading test models..."
 
 # Download small GGUF models for testing
 TEST_MODELS=(
-    "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4_k_m.gguf|phi-3-mini-4k.gguf"
     "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf|qwen2.5-0.5b.gguf"
-    "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf|llama-3.2-1b.gguf"
 )
 
 for model_info in "${TEST_MODELS[@]}"; do
@@ -266,16 +366,7 @@ for model_info in "${TEST_MODELS[@]}"; do
     fi
 done
 
-# Find the first available model
-FIRST_MODEL=""
-for model_file in "$MODELS_DIR"/*.gguf; do
-    if [[ -f "$model_file" ]]; then
-        FIRST_MODEL="$model_file"
-        break
-    fi
-done
-
-if [[ -z "$FIRST_MODEL" ]]; then
+if [[ -z "$model_path" ]]; then
     echo "❌ No models available for testing"
     echo "You can manually download a GGUF model to $MODELS_DIR"
     exit 1
@@ -292,18 +383,17 @@ echo "Starting server with model: $(basename "$FIRST_MODEL")"
 
 # Determine optimal settings
 THREADS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
-CONTEXT_SIZE=4096
-BATCH_SIZE=512
+CONTEXT_SIZE=2048
+BATCH_SIZE=256
 
 # Additional server arguments based on platform
 SERVER_ARGS=(
-    "--model" "$FIRST_MODEL"
+    "--model" "$model_path"
     "--host" "$SERVER_HOST"
     "--port" "$SERVER_PORT"
     "--ctx-size" "$CONTEXT_SIZE"
     "--batch-size" "$BATCH_SIZE"
     "--threads" "$THREADS"
-    "--log-format" "text"
     "--verbose"
 )
 
@@ -430,3 +520,9 @@ echo "  - Restart server: cd $LLAMA_CPP_DIR && $SERVER_BINARY --model <model-pat
 echo "  - List built binaries: ls -la $BUILD_DIR/bin/"
 echo ""
 echo "🔗 Integration ready! Your llama.cpp server is compatible with OpenAI API format."
+
+# Add llama-server to PATH
+echo ""
+echo "🔧 Adding llama-server to PATH..."
+add_llama_to_path
+
