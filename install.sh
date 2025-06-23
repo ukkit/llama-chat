@@ -35,7 +35,7 @@ LLAMACPP_PORT="${LLAMACPP_PORT:-8120}"
 
 # llama.cpp paths (can be overridden by environment variables)
 LLAMACPP_BINARY="${LLAMACPP_BINARY:-llama-server}"  # Will search in PATH if just binary name
-MODELS_DIR="${MODELS_DIR:-$HOME/llama_models}"      # Default models directory
+MODELS_DIR="$INSTALL_DIR/models"      # Default models directory
 
 # Model configuration
 RECOMMENDED_MODEL="${CHAT_OLLAMA_MODEL:-qwen2.5-0.5b-instruct-q4_0.gguf}"
@@ -203,7 +203,7 @@ check_llamacpp() {
 
     # Try to find llama-server binary
     local llamacpp_path=""
-    
+
     # First, check if LLAMACPP_BINARY is a full path
     if [ -f "$LLAMACPP_BINARY" ] && [ -x "$LLAMACPP_BINARY" ]; then
         llamacpp_path="$LLAMACPP_BINARY"
@@ -249,7 +249,7 @@ check_llamacpp() {
 # Function to setup models directory
 setup_models_directory() {
     print_step "Setting up models directory..."
-    
+
     # Create models directory if it doesn't exist
     if [ ! -d "$MODELS_DIR" ]; then
         mkdir -p "$MODELS_DIR"
@@ -616,7 +616,7 @@ start_llamacpp_server() {
 
     # Use configured binary path
     local binary_path="${LLAMACPP_BINARY_PATH:-$LLAMACPP_BINARY}"
-    
+
     # Find a model file
     local model_file=$(find "$MODELS_DIR" -name "*.gguf" 2>/dev/null | head -n1)
 
@@ -638,7 +638,7 @@ start_llamacpp_server() {
 
     # Start server in background with configuration
     mkdir -p logs
-    
+
     # Determine optimal settings
     THREADS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
     CONTEXT_SIZE=${CONTEXT_SIZE:-4096}
