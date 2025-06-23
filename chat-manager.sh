@@ -16,6 +16,18 @@ NC='\033[0m' # No Color
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MODELS_DIR="$SCRIPT_DIR/models"
+mkdir -p "$MODELS_DIR"
+
+# Create logs directory
+LOG_DIR="$SCRIPT_DIR/logs"
+mkdir -p "$LOG_DIR"
+
+# Log files
+LLAMACPP_LOG_FILE="$LOG_DIR/llamacpp.log"
+FLASK_LOG_FILE="$LOG_DIR/flask.log"
+MONITOR_LOG_FILE="$LOG_DIR/monitor.log"
+
 CONFIG_FILE="$SCRIPT_DIR/cm.conf"
 
 # Load configuration if available
@@ -24,9 +36,6 @@ if [ -f "$CONFIG_FILE" ]; then
 fi
 
 # Default values (can be overridden by config file)
-INSTALL_DIR="${INSTALL_DIR:-$SCRIPT_DIR}"
-MODELS_DIR="${MODELS_DIR:-$INSTALL_DIR/models}"
-LOG_DIR="${LOG_DIR:-$INSTALL_DIR/logs}"
 LLAMACPP_PORT="${LLAMACPP_PORT:-8120}"
 LLAMACPP_HOST="${LLAMACPP_HOST:-127.0.0.1}"
 FLASK_PORT="${FLASK_PORT:-3333}"
@@ -42,18 +51,13 @@ AUTO_RESTART_ON_CRASH="${AUTO_RESTART_ON_CRASH:-true}"
 HEALTH_CHECK_INTERVAL="${HEALTH_CHECK_INTERVAL:-30}"
 
 # PID files
-LLAMACPP_PID_FILE="$INSTALL_DIR/llamacpp.pid"
-FLASK_PID_FILE="$INSTALL_DIR/flask.pid"
-MONITOR_PID_FILE="$INSTALL_DIR/monitor.pid"
-
-# Log files
-LLAMACPP_LOG_FILE="${LLAMACPP_LOG_FILE:-$LOG_DIR/llamacpp.log}"
-FLASK_LOG_FILE="${FLASK_LOG_FILE:-$LOG_DIR/flask.log}"
-MONITOR_LOG_FILE="${MONITOR_LOG_FILE:-$LOG_DIR/monitor.log}"
+LLAMACPP_PID_FILE="$SCRIPT_DIR/llamacpp.pid"
+FLASK_PID_FILE="$SCRIPT_DIR/flask.pid"
+MONITOR_PID_FILE="$SCRIPT_DIR/monitor.pid"
 
 # Virtual environment and requirements
-VENV_DIR="$INSTALL_DIR/venv"
-REQUIREMENTS_FILE="$INSTALL_DIR/requirements.txt"
+VENV_DIR="$SCRIPT_DIR/venv"
+REQUIREMENTS_FILE="$SCRIPT_DIR/requirements.txt"
 
 # Function to print colored output
 print_success() {
@@ -78,7 +82,7 @@ print_step() {
 
 print_header() {
     echo -e "${PURPLE}╔══════════════════════════════════════╗${NC}"
-    echo -e "${PURPLE}║      Enhanced llama-chat Manager     ║${NC}"
+    echo -e "${PURPLE}║       llama-chat Manager             ║${NC}"
     echo -e "${PURPLE}║     Dynamic Model Switching          ║${NC}"
     echo -e "${PURPLE}╚══════════════════════════════════════╝${NC}"
     echo ""
@@ -181,9 +185,6 @@ start_llamacpp() {
 
     print_info "Using model: $(basename "$model_file")"
     print_info "Starting on $LLAMACPP_HOST:$LLAMACPP_PORT with $GPU_LAYERS GPU layers"
-
-    # Create logs directory
-    mkdir -p "$LOG_DIR"
 
     # Build llama-server command with environment variables
     local cmd="llama-server"
@@ -294,8 +295,8 @@ start_flask() {
     fi
 
     # Check if app.py exists
-    if [ ! -f "$INSTALL_DIR/app.py" ]; then
-        print_error "Flask application file not found: $INSTALL_DIR/app.py"
+    if [ ! -f "$SCRIPT_DIR/app.py" ]; then
+        print_error "Flask application file not found: $SCRIPT_DIR/app.py"
         print_info "Make sure app.py is in the same directory as this script"
         return 1
     fi
@@ -304,7 +305,7 @@ start_flask() {
     mkdir -p "$LOG_DIR"
 
     # Start Flask app
-    cd "$INSTALL_DIR"
+    cd "$SCRIPT_DIR"
     nohup bash -c "
         source venv/bin/activate
         export FLASK_HOST='$FLASK_HOST'
@@ -562,7 +563,7 @@ show_status() {
     echo ""
     echo "Configuration:"
     echo "=============="
-    echo "Install Directory: $INSTALL_DIR"
+    echo "Install Directory: $SCRIPT_DIR"
     echo "Models Directory:  $MODELS_DIR"
     echo "Config File:       $CONFIG_FILE"
     echo "llama.cpp API:     http://$LLAMACPP_HOST:$LLAMACPP_PORT"
@@ -668,7 +669,7 @@ test_installation() {
 
     # Test 1: Check directories
     print_step "Checking directories..."
-    for dir in "$INSTALL_DIR" "$MODELS_DIR" "$LOG_DIR"; do
+    for dir in "$SCRIPT_DIR" "$MODELS_DIR" "$LOG_DIR"; do
         if [ -d "$dir" ]; then
             print_success "Directory exists: $dir"
         else
