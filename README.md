@@ -1,3 +1,5 @@
+# ⚠️ This Repository is Archived
+
 # llama-chat 🦙
 
 **Your lightweight, private, local AI chatbot powered by llama.cpp (no GPU required)**
